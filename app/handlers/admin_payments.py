@@ -46,23 +46,32 @@ async def cb_approve_payment(
 
         try:
             await mark_payment_approved(session, request=request, admin_user=admin_user)
-            links = await create_invite_links_for_plan(
-                bot=callback.bot,
-                plan=request.plan,
-                user_telegram_id=request.user.telegram_id,
-                settings=settings,
-            )
             membership = await activate_membership(
                 session,
                 user=request.user,
                 plan=request.plan,
                 payment_request=request,
                 access_payload={
-                    "links_created": len(links),
                     "approved_by": admin_user.telegram_id,
+                    "request_kind": request.metadata_json.get("request_kind", "purchase"),
+                    "renewal_membership_id": request.metadata_json.get("renewal_membership_id"),
                 },
             )
             membership.plan = request.plan
+            links = await create_invite_links_for_plan(
+                bot=callback.bot,
+                session=session,
+                plan=request.plan,
+                user=request.user,
+                membership=membership,
+                payment_request=request,
+                approved_by=admin_user,
+                settings=settings,
+            )
+            membership.access_payload = {
+                **(membership.access_payload or {}),
+                "links_created": len(links),
+            }
             try:
                 await send_access_links(
                     bot=callback.bot,

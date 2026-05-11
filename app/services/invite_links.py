@@ -4,19 +4,24 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
 from app.models.channel import Channel
-from app.models.enums import LogAction
+from app.models.access_event import MembershipAccessEvent
+from app.models.enums import AccessEventKind, LogAction
 from app.models.generated_invite_link import GeneratedInviteLink
 from app.models.group import TelegramGroup
 from app.models.plan import Plan
 from app.models.user import User
 from app.services.logs import log_event
+from app.services.notifications import send_admin_log
+from app.utils.text import h
 from app.services.plans import get_plan
+from app.utils.time import human_datetime
 from app.utils.time import utc_now
 
 
@@ -96,6 +101,7 @@ async def generate_links(
         )
         session.add(record)
         created.append(record)
+    await session.flush()
 
     await log_event(
         session,
@@ -130,6 +136,7 @@ async def revoke_link(
     if record.revoked_at is None:
         await bot.revoke_chat_invite_link(record.telegram_chat_id, record.invite_link)
         record.revoked_at = utc_now()
+        record.revoked_reason = "admin_revoke"
         await log_event(
             session,
             LogAction.INVITE_LINK_REVOKED,
@@ -164,10 +171,179 @@ async def mark_invite_used(
     return record
 
 
+async def confirm_invite_join(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    invite_link: str,
+    user: User,
+    chat_title: str,
+    telegram_chat_id: int,
+) -> GeneratedInviteLink | None:
+    record = await session.scalar(
+        select(GeneratedInviteLink)
+        .options(
+            selectinload(GeneratedInviteLink.plan),
+            selectinload(GeneratedInviteLink.membership),
+            selectinload(GeneratedInviteLink.approved_by),
+        )
+        .where(GeneratedInviteLink.invite_link == invite_link)
+    )
+    now = utc_now()
+    if record is None:
+        await log_event(
+            session,
+            LogAction.USER_JOINED_CHAT,
+            f"Join detectado con link no registrado: {telegram_chat_id}",
+            target_user_id=user.id,
+            details={"invite_link": invite_link, "chat_id": telegram_chat_id, "chat_title": chat_title},
+        )
+        return None
+    if record.join_confirmed:
+        await log_event(
+            session,
+            LogAction.USER_JOINED_CHAT,
+            f"Join duplicado ignorado para link {record.id}",
+            target_user_id=user.id,
+            details={"link_id": record.id, "already_confirmed": True},
+        )
+        return record
+
+    record.is_used = True
+    record.used_by_user_id = user.id
+    record.used_at = now
+    record.joined_at = now
+    record.join_confirmed = True
+    event = MembershipAccessEvent(
+        user_id=user.id,
+        membership_id=record.membership_id,
+        plan_id=record.plan_id,
+        generated_invite_link_id=record.id,
+        event_kind=AccessEventKind.JOIN,
+        telegram_chat_id=telegram_chat_id,
+        chat_title=chat_title or record.chat_title,
+        channel_id=record.channel_id,
+        group_id=record.group_id,
+        approved_by_user_id=record.approved_by_user_id,
+        join_confirmed=True,
+        event_at=now,
+        metadata_json={"invite_link_id": record.id},
+    )
+    session.add(event)
+
+    try:
+        await bot.revoke_chat_invite_link(record.telegram_chat_id, record.invite_link)
+        record.revoked_at = now
+        record.revoked_reason = "joined"
+    except TelegramAPIError as exc:
+        await log_event(
+            session,
+            LogAction.ERROR,
+            f"No se pudo revocar invite link tras join: {record.id}",
+            target_user_id=user.id,
+            severity="ERROR",
+            details={"link_id": record.id, "error": str(exc)},
+        )
+
+    await log_event(
+        session,
+        LogAction.USER_JOINED_CHAT,
+        f"Usuario unido correctamente: {user.telegram_id}",
+        target_user_id=user.id,
+        details={"link_id": record.id, "plan_id": record.plan_id, "chat_id": telegram_chat_id},
+    )
+    await send_admin_log(
+        bot=bot,
+        session=session,
+        settings=settings,
+        title="✅ Usuario unido correctamente",
+        lines=[
+            f"👤 Nombre: {h(user.display_name)}",
+            f"🔗 Username: {h('@' + user.username)}" if user.username else "🔗 Username: -",
+            f"🆔 ID: <code>{user.telegram_id}</code>",
+            f"📦 Plan: {h(record.plan.name if record.plan else '-')}",
+            f"📍 Canal: {h(chat_title or record.chat_title)}",
+            f"🔗 Invite ID: INV-{record.id}",
+            f"🕒 Fecha ingreso: {human_datetime(now, settings.app_timezone)}",
+        ],
+    )
+    return record
+
+
+async def reissue_expired_link(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    link_id: int,
+    actor: User | None,
+) -> GeneratedInviteLink:
+    old = await session.scalar(
+        select(GeneratedInviteLink)
+        .options(selectinload(GeneratedInviteLink.plan))
+        .where(GeneratedInviteLink.id == link_id)
+    )
+    if old is None:
+        raise ValueError("Link no encontrado.")
+    if old.join_confirmed:
+        raise ValueError("El usuario ya uso este link.")
+    expire_at = utc_now() + timedelta(hours=max(10, settings.approved_invite_link_ttl_hours))
+    if old.revoked_at is None:
+        try:
+            await bot.revoke_chat_invite_link(old.telegram_chat_id, old.invite_link)
+        except TelegramAPIError:
+            pass
+    invite = await bot.create_chat_invite_link(
+        chat_id=old.telegram_chat_id,
+        name=f"reissue-{old.id}-{old.reissue_count + 1}",
+        expire_date=expire_at,
+        member_limit=1,
+        creates_join_request=False,
+    )
+    old.last_reissued_at = utc_now()
+    old.reissue_count += 1
+    old.revoked_at = utc_now()
+    old.revoked_reason = "reissued"
+    new = GeneratedInviteLink(
+        creator_user_id=actor.id if actor else old.creator_user_id,
+        approved_by_user_id=old.approved_by_user_id,
+        plan_id=old.plan_id,
+        membership_id=old.membership_id,
+        payment_request_id=old.payment_request_id,
+        channel_id=old.channel_id,
+        group_id=old.group_id,
+        telegram_chat_id=old.telegram_chat_id,
+        chat_title=old.chat_title,
+        invite_link=invite.invite_link,
+        expire_at=expire_at,
+        metadata_json={"reissued_from": old.id},
+    )
+    session.add(new)
+    await session.flush()
+    await log_event(
+        session,
+        LogAction.INVITE_LINK_REISSUED,
+        f"Invite link reemitido: {old.id}",
+        actor_user_id=actor.id if actor else None,
+        details={"old_link_id": old.id, "new_link_id": new.id},
+    )
+    return new
+
+
 async def link_stats(session: AsyncSession) -> dict[str, int]:
     total = await session.scalar(select(func.count(GeneratedInviteLink.id)))
     used = await session.scalar(select(func.count(GeneratedInviteLink.id)).where(GeneratedInviteLink.is_used.is_(True)))
     revoked = await session.scalar(select(func.count(GeneratedInviteLink.id)).where(GeneratedInviteLink.revoked_at.is_not(None)))
+    joined = await session.scalar(
+        select(func.count(GeneratedInviteLink.id)).where(GeneratedInviteLink.join_confirmed.is_(True))
+    )
+    expired_unused = await session.scalar(
+        select(func.count(GeneratedInviteLink.id)).where(
+            GeneratedInviteLink.join_confirmed.is_(False),
+            GeneratedInviteLink.expire_at <= utc_now(),
+        )
+    )
     active = await session.scalar(
         select(func.count(GeneratedInviteLink.id)).where(
             GeneratedInviteLink.is_used.is_(False),
@@ -175,5 +351,11 @@ async def link_stats(session: AsyncSession) -> dict[str, int]:
             GeneratedInviteLink.expire_at > utc_now(),
         )
     )
-    return {"total": int(total or 0), "active": int(active or 0), "used": int(used or 0), "revoked": int(revoked or 0)}
-
+    return {
+        "total": int(total or 0),
+        "active": int(active or 0),
+        "used": int(used or 0),
+        "revoked": int(revoked or 0),
+        "joined": int(joined or 0),
+        "expired_unused": int(expired_unused or 0),
+    }

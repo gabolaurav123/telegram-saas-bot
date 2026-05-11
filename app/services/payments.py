@@ -38,6 +38,7 @@ async def create_payment_request(
     proof_file_id: str,
     proof_file_unique_id: str | None,
     proof_message_id: int | None,
+    metadata_json: dict | None = None,
 ) -> PaymentRequest:
     existing = await session.scalar(
         select(PaymentRequest.id).where(
@@ -65,6 +66,7 @@ async def create_payment_request(
         proof_file_id=proof_file_id,
         proof_file_unique_id=proof_file_unique_id,
         proof_message_id=proof_message_id,
+        metadata_json=metadata_json or {},
     )
     session.add(request)
     await session.flush()
@@ -77,8 +79,21 @@ async def create_payment_request(
             "payment_request_id": request.id,
             "plan_id": plan.id,
             "payment_method_id": payment_method.id,
+            "request_kind": request.metadata_json.get("request_kind"),
         },
     )
+    if request.metadata_json.get("request_kind") == "renewal":
+        await log_event(
+            session,
+            LogAction.MEMBERSHIP_RENEWAL_REQUESTED,
+            f"Renovacion solicitada: pago {request.id}",
+            target_user_id=user.id,
+            details={
+                "payment_request_id": request.id,
+                "plan_id": plan.id,
+                "renewal_membership_id": request.metadata_json.get("renewal_membership_id"),
+            },
+        )
     return request
 
 
@@ -111,6 +126,18 @@ async def mark_payment_approved(
         target_user_id=request.user_id,
         details={"payment_request_id": request.id},
     )
+    if request.metadata_json.get("request_kind") == "renewal":
+        await log_event(
+            session,
+            LogAction.MEMBERSHIP_RENEWAL_APPROVED,
+            f"Renovacion aprobada: pago {request.id}",
+            actor_user_id=admin_user.id,
+            target_user_id=request.user_id,
+            details={
+                "payment_request_id": request.id,
+                "renewal_membership_id": request.metadata_json.get("renewal_membership_id"),
+            },
+        )
 
 
 async def mark_payment_rejected(
@@ -134,6 +161,19 @@ async def mark_payment_rejected(
         target_user_id=request.user_id,
         details={"payment_request_id": request.id, "reason": request.rejection_reason},
     )
+    if request.metadata_json.get("request_kind") == "renewal":
+        await log_event(
+            session,
+            LogAction.MEMBERSHIP_RENEWAL_REJECTED,
+            f"Renovacion rechazada: pago {request.id}",
+            actor_user_id=admin_user.id,
+            target_user_id=request.user_id,
+            details={
+                "payment_request_id": request.id,
+                "renewal_membership_id": request.metadata_json.get("renewal_membership_id"),
+                "reason": request.rejection_reason,
+            },
+        )
 
 
 async def mark_payment_banned(

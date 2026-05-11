@@ -11,6 +11,8 @@ from app.database.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.models.channel import Channel
     from app.models.group import TelegramGroup
+    from app.models.membership import Membership
+    from app.models.payment_request import PaymentRequest
     from app.models.plan import Plan
     from app.models.user import User
 
@@ -21,6 +23,11 @@ class GeneratedInviteLink(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(primary_key=True)
     creator_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"), index=True)
+    membership_id: Mapped[int | None] = mapped_column(ForeignKey("memberships.id", ondelete="SET NULL"), index=True)
+    payment_request_id: Mapped[int | None] = mapped_column(
+        ForeignKey("payment_requests.id", ondelete="SET NULL"), index=True
+    )
+    approved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     channel_id: Mapped[int | None] = mapped_column(ForeignKey("channels.id", ondelete="SET NULL"), index=True)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id", ondelete="SET NULL"), index=True)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, index=True)
@@ -30,13 +37,21 @@ class GeneratedInviteLink(Base, TimestampMixin):
     is_used: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False, index=True)
     used_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    join_confirmed: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False, index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_reason: Mapped[str | None] = mapped_column(String(120))
+    last_reissued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reissue_count: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSON, default=dict, server_default=text("'{}'"), nullable=False
     )
 
     creator: Mapped["User | None"] = relationship(foreign_keys=[creator_user_id])
+    approved_by: Mapped["User | None"] = relationship(foreign_keys=[approved_by_user_id])
     used_by: Mapped["User | None"] = relationship(foreign_keys=[used_by_user_id])
     plan: Mapped["Plan"] = relationship(lazy="selectin")
+    membership: Mapped["Membership | None"] = relationship(lazy="selectin")
+    payment_request: Mapped["PaymentRequest | None"] = relationship(lazy="selectin")
     channel: Mapped["Channel | None"] = relationship(lazy="selectin")
     group: Mapped["TelegramGroup | None"] = relationship(lazy="selectin")

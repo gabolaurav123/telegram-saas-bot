@@ -47,8 +47,32 @@ def payment_methods_keyboard(plan_id: int, methods: list[PaymentMethod]) -> Inli
     return builder.as_markup()
 
 
+def renewal_keyboard(membership_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Renovar ahora", callback_data=f"renew:membership:{membership_id}")
+    builder.button(text="Ver planes", callback_data="main:plans")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def renewal_payment_methods_keyboard(
+    *,
+    membership_id: int,
+    plan_id: int,
+    methods: list[PaymentMethod],
+) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    for method in methods:
+        builder.button(
+            text=method.name,
+            callback_data=f"renewmethod:{membership_id}:{plan_id}:{method.id}",
+        )
+    builder.button(text="Cancelar", callback_data="main:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def cancel_purchase_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Cancelar", callback_data="purchase:cancel")
     return builder.as_markup()
-

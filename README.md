@@ -48,12 +48,16 @@ requirements.txt
 - Recepcion de comprobantes como imagen o documento.
 - Notificacion automatica a OWNER/ADMIN con botones: aprobar, rechazar, banear y contactar.
 - Aprobacion manual con generacion de enlaces temporales de un solo uso.
+- Links de aprobacion validos al menos 10 horas, con revocacion automatica solo tras join confirmado.
+- Deteccion real de joins por invite link, logs a admins y auditoria en base de datos.
+- Reemision manual de links expirados sin join con `/reissuelink ID`.
 - Rechazo con motivo opcional y notificacion al usuario.
 - Roles estrictos: OWNER, ADMIN, MODERATOR.
 - Gestion de planes, metodos de pago, administradores, canales y grupos.
 - Registro automatico de canales/grupos cuando el bot es agregado como administrador.
 - Scheduler para recordatorios a 3 dias, 1 dia y expiracion.
-- Expulsion automatica de usuarios vencidos.
+- Recordatorios con boton "Renovar ahora"; la renovacion siempre requiere comprobante y aprobacion manual.
+- Expulsion automatica de usuarios vencidos con log a admins y eventos de acceso.
 - Logs de auditoria en base de datos y archivo local.
 - Exportacion CSV en ZIP desde el panel de backups.
 - Log automatico a admins cuando un usuario entra por primera vez con `/start`.
@@ -164,6 +168,8 @@ Las tablas principales son:
 - `settings`
 - `notifications`
 - `statistics`
+- `generated_invite_links`
+- `membership_access_events`
 
 Las asociaciones many-to-many son:
 
@@ -179,6 +185,8 @@ La migracion inicial esta en `migrations/versions/0001_initial.py` y crea el esq
 - Usa rate limiting en mensajes y callbacks.
 - Evita comprobantes duplicados pendientes por usuario/plan.
 - Usa enlaces temporales de un solo uso, nunca links permanentes.
+- Los links aprobados no expiran en minutos: duran minimo 10 horas y se revocan cuando Telegram confirma el ingreso.
+- Las renovaciones no extienden membresias automaticamente; siempre crean una nueva solicitud de pago pendiente.
 - Expulsa usuarios vencidos con `ban_chat_member` + `unban_chat_member`.
 - Registra aprobaciones, rechazos, expulsiones, errores administrativos y backups.
 
@@ -201,7 +209,9 @@ Administracion:
 - `/addmember`
 - `/listlinks`
 - `/revokelink ID`
+- `/reissuelink ID`
 - `/linkstats`
+- `/userinfo TELEGRAM_ID`
 - `/broadcast`
 - `/exportclients`
 

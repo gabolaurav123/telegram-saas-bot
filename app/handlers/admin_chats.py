@@ -8,13 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.keyboards.admin import chats_admin_keyboard
+from app.models.access_event import MembershipAccessEvent
 from app.models.channel import Channel
-from app.models.enums import ChatKind, LogAction, Role
+from app.models.enums import AccessEventKind, ChatKind, LogAction, Role
 from app.models.group import TelegramGroup
 from app.services.admins import require_role
 from app.services.channels import list_channels, list_groups, register_managed_chat
-from app.services.invite_links import mark_invite_used
+from app.services.invite_links import confirm_invite_join
 from app.services.logs import log_event
+from app.services.notifications import send_admin_log
 from app.services.users import get_or_create_user
 from app.states.admin import AdminChatStates
 from app.utils.text import h
@@ -39,14 +41,55 @@ async def on_bot_chat_member_update(
 async def on_user_chat_member_update(
     event: ChatMemberUpdated,
     session: AsyncSession,
+    settings: Settings,
 ) -> None:
-    if event.invite_link is None:
-        return
-    if event.new_chat_member.status not in {"member", "administrator", "creator"}:
-        return
     user = event.new_chat_member.user
     db_user = await get_or_create_user(session, user)
-    await mark_invite_used(session, invite_link=event.invite_link.invite_link, user=db_user)
+    if event.invite_link and event.new_chat_member.status in {"member", "administrator", "creator"}:
+        await confirm_invite_join(
+            bot=event.bot,
+            session=session,
+            settings=settings,
+            invite_link=event.invite_link.invite_link,
+            user=db_user,
+            chat_title=event.chat.title or str(event.chat.id),
+            telegram_chat_id=event.chat.id,
+        )
+        return
+
+    if event.old_chat_member.status in {"member", "administrator", "creator"} and event.new_chat_member.status in {
+        "left",
+        "kicked",
+    }:
+        access_event = MembershipAccessEvent(
+            user_id=db_user.id,
+            event_kind=AccessEventKind.LEAVE,
+            telegram_chat_id=event.chat.id,
+            chat_title=event.chat.title or str(event.chat.id),
+            join_confirmed=False,
+            event_at=event.date,
+            kick_result=event.new_chat_member.status,
+        )
+        session.add(access_event)
+        await log_event(
+            session,
+            LogAction.USER_LEFT_CHAT,
+            f"Usuario salio de chat: {db_user.telegram_id}",
+            target_user_id=db_user.id,
+            details={"chat_id": event.chat.id, "status": event.new_chat_member.status},
+        )
+        await send_admin_log(
+            bot=event.bot,
+            session=session,
+            settings=settings,
+            title="Usuario salio de canal/grupo",
+            lines=[
+                f"Nombre: {h(db_user.display_name)}",
+                f"ID: <code>{db_user.telegram_id}</code>",
+                f"Canal/grupo: {h(str(event.chat.title or event.chat.id))}",
+                f"Estado: {event.new_chat_member.status}",
+            ],
+        )
 
 
 @router.message(F.text == "/register_chat")

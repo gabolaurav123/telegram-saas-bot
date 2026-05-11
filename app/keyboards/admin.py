@@ -87,8 +87,9 @@ def generated_links_keyboard(link_ids: list[int]) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for link_id in link_ids:
         builder.button(text=f"Revocar #{link_id}", callback_data=f"link:revoke:{link_id}")
+        builder.button(text=f"Reemitir #{link_id}", callback_data=f"link:reissue:{link_id}")
     builder.button(text="Volver", callback_data="adm:menu")
-    builder.adjust(1)
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 

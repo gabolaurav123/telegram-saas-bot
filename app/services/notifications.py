@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.keyboards.admin import payment_review_keyboard
+from app.keyboards.user import renewal_keyboard
 from app.models.admin import Admin
 from app.models.enums import ProofKind
 from app.models.membership import Membership
@@ -47,6 +48,7 @@ async def notify_admins_about_payment(
     caption = (
         "<b>Nueva solicitud de pago</b>\n\n"
         f"ID: <code>{request.id}</code>\n"
+        f"Tipo: <b>{'Renovacion' if request.metadata_json.get('request_kind') == 'renewal' else 'Compra'}</b>\n"
         f"Usuario: {h(request.user.display_name)}\n"
         f"Telegram ID: <code>{request.user.telegram_id}</code>\n"
         f"Plan: <b>{h(request.plan.name)}</b>\n"
@@ -147,7 +149,8 @@ async def send_access_links(
         "<b>Pago aprobado</b>\n\n"
         f"Tu membresia <b>{h(membership.plan.name)}</b> esta activa.\n"
         f"Vence: {human_datetime(membership.expires_at, settings.app_timezone)}\n\n"
-        "Enlaces temporales de un solo uso:\n"
+        f"Enlaces temporales de un solo uso. Son validos al menos {max(10, settings.approved_invite_link_ttl_hours)} horas "
+        "y se invalidan automaticamente cuando entras correctamente:\n"
         f"{link_lines}"
     )
     await bot.send_message(user_telegram_id, text, disable_web_page_preview=True)
@@ -176,10 +179,11 @@ async def send_membership_reminder(
 ) -> None:
     await bot.send_message(
         membership.user.telegram_id,
-        "<b>Recordatorio de membresia</b>\n\n"
+        "<b>⚠️ Tu membresia esta por vencer.</b>\n\n"
         f"Tu plan <b>{h(membership.plan.name)}</b> vence en {days_before} dia(s).\n"
         f"Fecha de vencimiento: {human_datetime(membership.expires_at, settings.app_timezone)}\n\n"
-        "Puedes renovar desde el menu principal o con /plans.",
+        "La renovacion requiere un nuevo comprobante y aprobacion manual del admin.",
+        reply_markup=renewal_keyboard(membership.id),
     )
 
 
@@ -194,5 +198,6 @@ async def send_membership_expired(
         "<b>Membresia vencida</b>\n\n"
         f"Tu plan <b>{h(membership.plan.name)}</b> vencio el "
         f"{human_datetime(membership.expires_at, settings.app_timezone)}.\n\n"
-        "El acceso fue revocado automaticamente. Puedes renovar desde /plans.",
+        "El acceso fue revocado automaticamente. Puedes solicitar renovacion enviando un nuevo comprobante.",
+        reply_markup=renewal_keyboard(membership.id),
     )

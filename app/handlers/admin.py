@@ -60,7 +60,10 @@ async def cb_admin_stats(callback: CallbackQuery, session: AsyncSession, setting
         f"Membresias activas: <b>{stats['active_memberships']}</b>\n"
         f"Pagos pendientes: <b>{stats['pending_payments']}</b>\n"
         f"Ingresos aprobados: <b>{money(stats['revenue'], settings.default_currency)}</b>\n"
-        f"Renovaciones/aprobaciones: <b>{stats['renewals']}</b>\n"
+        f"Renovaciones solicitadas: <b>{stats['renewal_requested']}</b>\n"
+        f"Renovaciones aprobadas: <b>{stats['renewal_approved']}</b>\n"
+        f"Renovaciones rechazadas: <b>{stats['renewal_rejected']}</b>\n"
+        f"Joins confirmados: <b>{stats['successful_joins']}</b>\n"
         f"Expiraciones: <b>{stats['expirations']}</b>\n\n"
         f"Conversion rate: <b>{stats['conversion_rate']}%</b>\n\n"
         "<b>Planes mas vendidos</b>\n"
@@ -81,6 +84,9 @@ async def cmd_stats(message: Message, session: AsyncSession, settings: Settings)
         f"Activos semana: <b>{stats['active_week']}</b>\n"
         f"Membresias activas: <b>{stats['active_memberships']}</b>\n"
         f"Ingresos: <b>{money(stats['revenue'], settings.default_currency)}</b>\n"
+        f"Joins confirmados: <b>{stats['successful_joins']}</b>\n"
+        f"Renovaciones solicitadas/aprobadas/rechazadas: "
+        f"<b>{stats['renewal_requested']}/{stats['renewal_approved']}/{stats['renewal_rejected']}</b>\n"
         f"Conversion rate: <b>{stats['conversion_rate']}%</b>"
     )
 
@@ -209,7 +215,8 @@ async def cb_scheduler_status(callback: CallbackQuery, session: AsyncSession, se
         "<b>Scheduler status</b>\n\n"
         f"Enabled: <code>{settings.scheduler_enabled}</code>\n"
         f"Expire check: <code>{settings.expire_check_minutes} min</code>\n"
-        f"Reminder check: <code>{settings.reminder_check_minutes} min</code>",
+        f"Reminder check: <code>{settings.reminder_check_minutes} min</code>"
+        f"\nLink reissue: <code>{max(1, settings.expired_link_reissue_hours)} h</code>",
         reply_markup=back_admin_keyboard(),
     )
     await callback.answer()

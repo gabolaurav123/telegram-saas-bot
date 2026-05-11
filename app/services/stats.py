@@ -6,7 +6,9 @@ from decimal import Decimal
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import MembershipStatus, PaymentRequestStatus
+from app.models.access_event import MembershipAccessEvent
+from app.models.enums import AccessEventKind, LogAction, MembershipStatus, PaymentRequestStatus
+from app.models.log import SystemLog
 from app.models.membership import Membership
 from app.models.payment_request import PaymentRequest
 from app.models.plan import Plan
@@ -48,6 +50,21 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
     expirations = await session.scalar(
         select(func.count(Membership.id)).where(Membership.status == MembershipStatus.EXPIRED)
     )
+    successful_joins = await session.scalar(
+        select(func.count(MembershipAccessEvent.id)).where(
+            MembershipAccessEvent.event_kind == AccessEventKind.JOIN,
+            MembershipAccessEvent.join_confirmed.is_(True),
+        )
+    )
+    renewal_requested = await session.scalar(
+        select(func.count(SystemLog.id)).where(SystemLog.action == LogAction.MEMBERSHIP_RENEWAL_REQUESTED)
+    )
+    renewal_approved = await session.scalar(
+        select(func.count(SystemLog.id)).where(SystemLog.action == LogAction.MEMBERSHIP_RENEWAL_APPROVED)
+    )
+    renewal_rejected = await session.scalar(
+        select(func.count(SystemLog.id)).where(SystemLog.action == LogAction.MEMBERSHIP_RENEWAL_REJECTED)
+    )
     approved_payments = await session.scalar(
         select(func.count(PaymentRequest.id)).where(
             PaymentRequest.status == PaymentRequestStatus.APPROVED
@@ -70,7 +87,11 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
         "pending_payments": int(pending_payments or 0),
         "revenue": Decimal(revenue or 0),
         "renewals": int(renewals or 0),
+        "renewal_requested": int(renewal_requested or 0),
+        "renewal_approved": int(renewal_approved or 0),
+        "renewal_rejected": int(renewal_rejected or 0),
         "expirations": int(expirations or 0),
+        "successful_joins": int(successful_joins or 0),
         "conversion_rate": (
             round((int(approved_payments or 0) / int(total_users or 1)) * 100, 2)
             if int(total_users or 0)

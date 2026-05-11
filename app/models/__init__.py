@@ -1,4 +1,5 @@
 from app.models.admin import Admin
+from app.models.access_event import MembershipAccessEvent
 from app.models.associations import plan_channels, plan_groups, plan_payment_methods
 from app.models.broadcast import BroadcastJob, BroadcastRecipient
 from app.models.channel import Channel
@@ -17,6 +18,7 @@ from app.models.user import User
 
 __all__ = [
     "Admin",
+    "MembershipAccessEvent",
     "BroadcastJob",
     "BroadcastRecipient",
     "Channel",

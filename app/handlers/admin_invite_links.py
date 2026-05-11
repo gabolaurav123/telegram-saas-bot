@@ -20,6 +20,7 @@ from app.services.invite_links import (
     generate_links,
     link_stats,
     list_recent_links,
+    reissue_expired_link,
     revoke_link,
 )
 from app.services.plans import get_plan, list_plans
@@ -57,6 +58,8 @@ async def cb_links_panel(callback: CallbackQuery, session: AsyncSession, setting
         f"Total: <b>{stats['total']}</b>\n"
         f"Activos: <b>{stats['active']}</b>\n"
         f"Usados: <b>{stats['used']}</b>\n"
+        f"Joins confirmados: <b>{stats['joined']}</b>\n"
+        f"Expirados sin join: <b>{stats['expired_unused']}</b>\n"
         f"Revocados: <b>{stats['revoked']}</b>",
         reply_markup=builder.as_markup(),
     )
@@ -152,10 +155,11 @@ async def list_links(event: Message | CallbackQuery, session: AsyncSession, sett
     else:
         text = "<b>Ultimos invite links</b>\n\n" + "\n".join(
             f"#{link.id} | {h(link.plan.name)} | {'usado' if link.is_used else 'libre'} | "
+            f"{'join ok' if link.join_confirmed else 'sin join'} | "
             f"{'revocado' if link.revoked_at else 'activo'}"
             for link in links
         )
-        keyboard = generated_links_keyboard([link.id for link in links if not link.revoked_at])
+        keyboard = generated_links_keyboard([link.id for link in links if not link.join_confirmed])
     if isinstance(event, CallbackQuery):
         await event.message.edit_text(text, reply_markup=keyboard)
         await event.answer()
@@ -173,6 +177,8 @@ async def show_link_stats(event: Message | CallbackQuery, session: AsyncSession,
         f"Total: <b>{stats['total']}</b>\n"
         f"Activos: <b>{stats['active']}</b>\n"
         f"Usados: <b>{stats['used']}</b>\n"
+        f"Joins confirmados: <b>{stats['joined']}</b>\n"
+        f"Expirados sin join: <b>{stats['expired_unused']}</b>\n"
         f"Revocados: <b>{stats['revoked']}</b>"
     )
     if isinstance(event, CallbackQuery):
@@ -199,6 +205,27 @@ async def cmd_revoke_link(message: Message, session: AsyncSession, settings: Set
     await message.answer(f"Link #{record.id} revocado.")
 
 
+@router.message(Command("reissuelink"))
+async def cmd_reissue_link(message: Message, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    parts = (message.text or "").split()
+    if len(parts) != 2:
+        await message.answer("Uso: <code>/reissuelink ID</code>")
+        return
+    actor = await get_or_create_user(session, message.from_user)
+    record = await reissue_expired_link(
+        bot=message.bot,
+        session=session,
+        settings=settings,
+        link_id=parse_positive_int(parts[1], "ID"),
+        actor=actor,
+    )
+    await message.answer(
+        f"Link #{record.id} reemitido.\n\n{h(record.invite_link)}",
+        disable_web_page_preview=True,
+    )
+
+
 @router.callback_query(F.data.startswith("link:revoke:"))
 async def cb_revoke_link(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
@@ -212,3 +239,20 @@ async def cb_revoke_link(callback: CallbackQuery, session: AsyncSession, setting
     await callback.answer(f"Link #{record.id} revocado.")
     await cb_links_panel(callback, session, settings)
 
+
+@router.callback_query(F.data.startswith("link:reissue:"))
+async def cb_reissue_link(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    actor = await get_or_create_user(session, callback.from_user)
+    record = await reissue_expired_link(
+        bot=callback.bot,
+        session=session,
+        settings=settings,
+        link_id=int(callback.data.split(":")[-1]),
+        actor=actor,
+    )
+    await callback.message.answer(
+        f"Link #{record.id} reemitido.\n\n{h(record.invite_link)}",
+        disable_web_page_preview=True,
+    )
+    await callback.answer("Link reemitido.")

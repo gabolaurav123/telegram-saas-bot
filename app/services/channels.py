@@ -12,7 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import Settings
 from app.models.channel import Channel
 from app.models.enums import ChatKind, LogAction
+from app.models.generated_invite_link import GeneratedInviteLink
 from app.models.group import TelegramGroup
+from app.models.membership import Membership
+from app.models.payment_request import PaymentRequest
 from app.models.plan import Plan
 from app.models.user import User
 from app.services.logs import log_event
@@ -100,29 +103,33 @@ async def list_groups(session: AsyncSession, *, only_active: bool = False) -> li
 async def create_invite_links_for_plan(
     *,
     bot: Bot,
+    session: AsyncSession,
     plan: Plan,
-    user_telegram_id: int,
+    user: User,
+    membership: Membership,
+    payment_request: PaymentRequest,
+    approved_by: User,
     settings: Settings,
 ) -> list[tuple[str, str]]:
-    expire_date = utc_now() + timedelta(minutes=settings.invite_link_ttl_minutes)
+    expire_date = utc_now() + timedelta(hours=max(10, settings.approved_invite_link_ttl_hours))
     links: list[tuple[str, str]] = []
 
-    managed_chats: list[tuple[str, int]] = [
-        (channel.title, channel.telegram_chat_id)
+    managed_chats: list[tuple[str, int, int | None, int | None]] = [
+        (channel.title, channel.telegram_chat_id, channel.id, None)
         for channel in plan.channels
         if channel.is_active
     ]
     managed_chats.extend(
-        (group.title, group.telegram_chat_id)
+        (group.title, group.telegram_chat_id, None, group.id)
         for group in plan.groups
         if group.is_active
     )
 
-    for title, chat_id in managed_chats:
+    for title, chat_id, channel_id, group_id in managed_chats:
         try:
             invite = await bot.create_chat_invite_link(
                 chat_id=chat_id,
-                name=f"{plan.slug}-{user_telegram_id}",
+                name=f"{plan.slug}-{user.telegram_id}-{membership.id}",
                 expire_date=expire_date,
                 member_limit=1,
                 creates_join_request=False,
@@ -130,7 +137,22 @@ async def create_invite_links_for_plan(
         except TelegramAPIError:
             logger.exception("Could not create invite link for chat %s", chat_id)
             continue
+        record = GeneratedInviteLink(
+            creator_user_id=approved_by.id,
+            approved_by_user_id=approved_by.id,
+            plan_id=plan.id,
+            membership_id=membership.id,
+            payment_request_id=payment_request.id,
+            channel_id=channel_id,
+            group_id=group_id,
+            telegram_chat_id=chat_id,
+            chat_title=title,
+            invite_link=invite.invite_link,
+            expire_at=expire_date,
+        )
+        session.add(record)
         links.append((title, invite.invite_link))
+    await session.flush()
     return links
 
 
@@ -139,12 +161,20 @@ async def revoke_user_from_plan_chats(
     bot: Bot,
     plan: Plan,
     user_telegram_id: int,
-) -> list[int]:
-    revoked: list[int] = []
-    managed_chat_ids = [channel.telegram_chat_id for channel in plan.channels if channel.is_active]
-    managed_chat_ids.extend(group.telegram_chat_id for group in plan.groups if group.is_active)
+) -> list[dict[str, object]]:
+    revoked: list[dict[str, object]] = []
+    managed_chats: list[tuple[str, int, int | None, int | None]] = [
+        (channel.title, channel.telegram_chat_id, channel.id, None)
+        for channel in plan.channels
+        if channel.is_active
+    ]
+    managed_chats.extend(
+        (group.title, group.telegram_chat_id, None, group.id)
+        for group in plan.groups
+        if group.is_active
+    )
 
-    for chat_id in managed_chat_ids:
+    for title, chat_id, channel_id, group_id in managed_chats:
         try:
             await bot.ban_chat_member(
                 chat_id=chat_id,
@@ -156,8 +186,25 @@ async def revoke_user_from_plan_chats(
                 user_id=user_telegram_id,
                 only_if_banned=True,
             )
-            revoked.append(chat_id)
-        except TelegramAPIError:
+            revoked.append(
+                {
+                    "title": title,
+                    "chat_id": chat_id,
+                    "channel_id": channel_id,
+                    "group_id": group_id,
+                    "result": "KICKED",
+                }
+            )
+        except TelegramAPIError as exc:
             logger.exception("Could not revoke user %s from chat %s", user_telegram_id, chat_id)
+            revoked.append(
+                {
+                    "title": title,
+                    "chat_id": chat_id,
+                    "channel_id": channel_id,
+                    "group_id": group_id,
+                    "result": "FAILED",
+                    "error": str(exc),
+                }
+            )
     return revoked
-
