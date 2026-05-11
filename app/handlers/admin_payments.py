@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict
+
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
@@ -23,6 +26,7 @@ from app.states.admin import AdminPaymentReviewStates
 from app.utils.text import h
 
 router = Router(name="admin_payments")
+PAYMENT_LOCKS: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 @router.callback_query(F.data.startswith("adm:pay:ok:"))
@@ -34,46 +38,47 @@ async def cb_approve_payment(
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
-    request = await get_payment_request(session, request_id)
-    if request is None:
-        await callback.answer("Solicitud no encontrada.", show_alert=True)
-        return
+    async with PAYMENT_LOCKS[request_id]:
+        request = await get_payment_request(session, request_id)
+        if request is None:
+            await callback.answer("Solicitud no encontrada.", show_alert=True)
+            return
 
-    try:
-        await mark_payment_approved(session, request=request, admin_user=admin_user)
-        links = await create_invite_links_for_plan(
-            bot=callback.bot,
-            plan=request.plan,
-            user_telegram_id=request.user.telegram_id,
-            settings=settings,
-        )
-        membership = await activate_membership(
-            session,
-            user=request.user,
-            plan=request.plan,
-            payment_request=request,
-            access_payload={
-                "links_created": len(links),
-                "approved_by": admin_user.telegram_id,
-            },
-        )
-        membership.plan = request.plan
         try:
-            await send_access_links(
+            await mark_payment_approved(session, request=request, admin_user=admin_user)
+            links = await create_invite_links_for_plan(
                 bot=callback.bot,
+                plan=request.plan,
                 user_telegram_id=request.user.telegram_id,
-                membership=membership,
-                links=links,
                 settings=settings,
             )
-        except TelegramAPIError:
-            await callback.message.answer(
-                "Pago aprobado, pero no pude enviar el acceso al usuario. "
-                "Revisa si inicio el bot o si bloqueo mensajes privados."
+            membership = await activate_membership(
+                session,
+                user=request.user,
+                plan=request.plan,
+                payment_request=request,
+                access_payload={
+                    "links_created": len(links),
+                    "approved_by": admin_user.telegram_id,
+                },
             )
-    except ValueError as exc:
-        await callback.answer(str(exc), show_alert=True)
-        return
+            membership.plan = request.plan
+            try:
+                await send_access_links(
+                    bot=callback.bot,
+                    user_telegram_id=request.user.telegram_id,
+                    membership=membership,
+                    links=links,
+                    settings=settings,
+                )
+            except TelegramAPIError:
+                await callback.message.answer(
+                    "Pago aprobado, pero no pude enviar el acceso al usuario. "
+                    "Revisa si inicio el bot o si bloqueo mensajes privados."
+                )
+        except ValueError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
 
     await _mark_admin_message(callback, f"Pago #{request.id} aprobado por {h(admin_user.display_name)}.")
     await callback.answer("Pago aprobado.")
@@ -109,35 +114,37 @@ async def receive_rejection_reason(
     await require_role(session, message.from_user.id, settings, Role.ADMIN)
     admin_user = await get_or_create_user(session, message.from_user)
     data = await state.get_data()
-    request = await get_payment_request(session, int(data["payment_request_id"]))
-    if request is None:
-        await message.answer("Solicitud no encontrada.")
-        await state.clear()
-        return
-    reason = (message.text or "").strip()
-    if reason == "-":
-        reason = "Comprobante no aprobado."
-    try:
-        await mark_payment_rejected(
-            session,
-            request=request,
-            admin_user=admin_user,
-            reason=reason,
-        )
+    request_id = int(data["payment_request_id"])
+    async with PAYMENT_LOCKS[request_id]:
+        request = await get_payment_request(session, request_id)
+        if request is None:
+            await message.answer("Solicitud no encontrada.")
+            await state.clear()
+            return
+        reason = (message.text or "").strip()
+        if reason == "-":
+            reason = "Comprobante no aprobado."
         try:
-            await send_payment_rejected(
-                bot=message.bot,
-                user_telegram_id=request.user.telegram_id,
-                reason=request.rejection_reason,
+            await mark_payment_rejected(
+                session,
+                request=request,
+                admin_user=admin_user,
+                reason=reason,
             )
-        except TelegramAPIError:
-            await message.answer(
-                "Pago rechazado, pero no pude notificar al usuario por mensaje privado."
-            )
-    except ValueError as exc:
-        await message.answer(str(exc))
-    else:
-        await message.answer(f"Pago #{request.id} rechazado.")
+            try:
+                await send_payment_rejected(
+                    bot=message.bot,
+                    user_telegram_id=request.user.telegram_id,
+                    reason=request.rejection_reason,
+                )
+            except TelegramAPIError:
+                await message.answer(
+                    "Pago rechazado, pero no pude notificar al usuario por mensaje privado."
+                )
+        except ValueError as exc:
+            await message.answer(str(exc))
+        else:
+            await message.answer(f"Pago #{request.id} rechazado.")
     await state.clear()
 
 
@@ -150,11 +157,12 @@ async def cb_ban_from_payment(
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
-    request = await get_payment_request(session, request_id)
-    if request is None:
-        await callback.answer("Solicitud no encontrada.", show_alert=True)
-        return
-    await mark_payment_banned(session, request=request, admin_user=admin_user)
+    async with PAYMENT_LOCKS[request_id]:
+        request = await get_payment_request(session, request_id)
+        if request is None:
+            await callback.answer("Solicitud no encontrada.", show_alert=True)
+            return
+        await mark_payment_banned(session, request=request, admin_user=admin_user)
     await _mark_admin_message(callback, f"Usuario {h(request.user.display_name)} baneado.")
     await callback.answer("Usuario baneado.")
 

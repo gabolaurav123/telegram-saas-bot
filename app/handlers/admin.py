@@ -3,13 +3,15 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, Message
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.keyboards.admin import admin_menu_keyboard, back_admin_keyboard
-from app.models.enums import Role
+from app.models.enums import MembershipStatus, PaymentRequestStatus, Role
 from app.models.log import SystemLog
+from app.models.membership import Membership
+from app.models.payment_request import PaymentRequest
 from app.services.admins import require_role
 from app.services.backups import export_csv_zip
 from app.services.stats import get_overview
@@ -53,16 +55,34 @@ async def cb_admin_stats(callback: CallbackQuery, session: AsyncSession, setting
         "<b>Estadisticas</b>\n\n"
         f"Usuarios totales: <b>{stats['total_users']}</b>\n"
         f"Usuarios activos: <b>{stats['active_users']}</b>\n"
+        f"Activos hoy: <b>{stats['active_today']}</b>\n"
+        f"Activos semana: <b>{stats['active_week']}</b>\n"
         f"Membresias activas: <b>{stats['active_memberships']}</b>\n"
         f"Pagos pendientes: <b>{stats['pending_payments']}</b>\n"
         f"Ingresos aprobados: <b>{money(stats['revenue'], settings.default_currency)}</b>\n"
         f"Renovaciones/aprobaciones: <b>{stats['renewals']}</b>\n"
         f"Expiraciones: <b>{stats['expirations']}</b>\n\n"
+        f"Conversion rate: <b>{stats['conversion_rate']}%</b>\n\n"
         "<b>Planes mas vendidos</b>\n"
         f"{top_lines}"
     )
     await callback.message.edit_text(text, reply_markup=back_admin_keyboard())
     await callback.answer()
+
+
+@router.message(Command("stats"))
+async def cmd_stats(message: Message, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    stats = await get_overview(session)
+    await message.answer(
+        "<b>Estadisticas</b>\n\n"
+        f"Usuarios totales: <b>{stats['total_users']}</b>\n"
+        f"Activos hoy: <b>{stats['active_today']}</b>\n"
+        f"Activos semana: <b>{stats['active_week']}</b>\n"
+        f"Membresias activas: <b>{stats['active_memberships']}</b>\n"
+        f"Ingresos: <b>{money(stats['revenue'], settings.default_currency)}</b>\n"
+        f"Conversion rate: <b>{stats['conversion_rate']}%</b>"
+    )
 
 
 @router.callback_query(F.data == "adm:users")
@@ -140,6 +160,61 @@ async def cb_admin_backups(callback: CallbackQuery, session: AsyncSession, setti
     )
 
 
+@router.callback_query(F.data == "adm:pending")
+async def cb_pending_approvals(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    count = await session.scalar(
+        select(func.count(PaymentRequest.id)).where(PaymentRequest.status == PaymentRequestStatus.PENDING)
+    )
+    await callback.message.edit_text(
+        "<b>Pending approvals</b>\n\n"
+        f"Solicitudes pendientes: <b>{int(count or 0)}</b>\n\n"
+        "Las nuevas solicitudes llegan automaticamente con botones de aprobacion.",
+        reply_markup=back_admin_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.in_({"adm:subs:active", "adm:subs:expired"}))
+async def cb_subscription_status(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    status = MembershipStatus.ACTIVE if callback.data.endswith("active") else MembershipStatus.EXPIRED
+    count = await session.scalar(select(func.count(Membership.id)).where(Membership.status == status))
+    await callback.message.edit_text(
+        f"<b>{'Active' if status == MembershipStatus.ACTIVE else 'Expired'} subscriptions</b>\n\n"
+        f"Total: <b>{int(count or 0)}</b>",
+        reply_markup=back_admin_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:health")
+async def cb_system_health(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    await session.scalar(select(1))
+    await callback.message.edit_text(
+        "<b>System health</b>\n\n"
+        "PostgreSQL: <b>OK</b>\n"
+        "Bot process: <b>OK</b>\n"
+        f"Environment: <code>{h(settings.app_env)}</code>",
+        reply_markup=back_admin_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "adm:scheduler")
+async def cb_scheduler_status(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    await callback.message.edit_text(
+        "<b>Scheduler status</b>\n\n"
+        f"Enabled: <code>{settings.scheduler_enabled}</code>\n"
+        f"Expire check: <code>{settings.expire_check_minutes} min</code>\n"
+        f"Reminder check: <code>{settings.reminder_check_minutes} min</code>",
+        reply_markup=back_admin_keyboard(),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "adm:noop")
 async def cb_noop(callback: CallbackQuery) -> None:
     await callback.answer()
@@ -151,4 +226,3 @@ def _admin_menu_text(role: Role) -> str:
         f"Rol activo: <b>{role.value}</b>\n"
         "Selecciona una seccion:"
     )
-

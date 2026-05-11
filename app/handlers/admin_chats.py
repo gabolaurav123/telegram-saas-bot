@@ -13,6 +13,7 @@ from app.models.enums import ChatKind, LogAction, Role
 from app.models.group import TelegramGroup
 from app.services.admins import require_role
 from app.services.channels import list_channels, list_groups, register_managed_chat
+from app.services.invite_links import mark_invite_used
 from app.services.logs import log_event
 from app.services.users import get_or_create_user
 from app.states.admin import AdminChatStates
@@ -32,6 +33,20 @@ async def on_bot_chat_member_update(
     if event.new_chat_member.status in {"left", "kicked"}:
         return
     await register_managed_chat(session, chat=event.chat)
+
+
+@router.chat_member()
+async def on_user_chat_member_update(
+    event: ChatMemberUpdated,
+    session: AsyncSession,
+) -> None:
+    if event.invite_link is None:
+        return
+    if event.new_chat_member.status not in {"member", "administrator", "creator"}:
+        return
+    user = event.new_chat_member.user
+    db_user = await get_or_create_user(session, user)
+    await mark_invite_used(session, invite_link=event.invite_link.invite_link, user=db_user)
 
 
 @router.message(F.text == "/register_chat")
@@ -132,4 +147,3 @@ async def receive_manual_chat(message: Message, state: FSMContext, session: Asyn
     )
     await state.clear()
     await message.answer(f"Chat registrado: <b>{h(title)}</b>")
-

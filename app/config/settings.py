@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     backup_dir: Path = Field(default=BASE_DIR / "backups", alias="BACKUP_DIR")
     pg_dump_path: str = Field(default="pg_dump", alias="PG_DUMP_PATH")
 
+    broadcast_batch_size: int = Field(default=25, alias="BROADCAST_BATCH_SIZE")
+    broadcast_batch_delay_seconds: float = Field(default=1.0, alias="BROADCAST_BATCH_DELAY_SECONDS")
+    broadcast_max_retries: int = Field(default=2, alias="BROADCAST_MAX_RETRIES")
+    max_invite_links_per_batch: int = Field(default=100, alias="MAX_INVITE_LINKS_PER_BATCH")
+
     auto_create_db: bool = Field(default=False, alias="AUTO_CREATE_DB")
     db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")

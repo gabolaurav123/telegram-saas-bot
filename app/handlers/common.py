@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.keyboards.user import main_menu_keyboard
+from app.models.enums import LogAction
+from app.services.logs import log_event
 from app.services.memberships import get_active_memberships
-from app.services.users import get_or_create_user
+from app.services.notifications import send_admin_log
+from app.services.users import get_or_create_user, get_or_create_user_with_flag
 from app.utils.text import h
 from app.utils.time import human_datetime, remaining_days
 
@@ -16,8 +19,36 @@ router = Router(name="common")
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message, session: AsyncSession, settings: Settings) -> None:
-    user = await get_or_create_user(session, message.from_user)
+async def cmd_start(
+    message: Message,
+    command: CommandObject,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    user, created = await get_or_create_user_with_flag(session, message.from_user)
+    referral = command.args.strip() if command.args else None
+    if created:
+        await send_admin_log(
+            bot=message.bot,
+            session=session,
+            settings=settings,
+            title="Nuevo usuario registrado",
+            lines=[
+                f"Nombre: {h(user.display_name)}",
+                f"Username: {h('@' + user.username if user.username else '-')}",
+                f"ID: <code>{user.telegram_id}</code>",
+                f"Fecha: {human_datetime(user.registered_at, settings.app_timezone)}",
+                "Estado: Primer ingreso al bot",
+                f"Origen: {h(referral) if referral else '-'}",
+            ],
+        )
+        await log_event(
+            session,
+            LogAction.USER_REGISTERED,
+            f"Nuevo usuario registrado: {user.telegram_id}",
+            target_user_id=user.id,
+            details={"referral": referral},
+        )
     text = (
         f"<b>{h(settings.public_brand_name)}</b>\n\n"
         f"Hola {h(user.display_name)}. Desde aqui puedes comprar, renovar y revisar "
@@ -147,4 +178,3 @@ def _support_text(settings: Settings) -> str:
         "<b>Soporte</b>\n\n"
         "Soporte aun no esta configurado. Pide al administrador definir SUPPORT_URL."
     )
-

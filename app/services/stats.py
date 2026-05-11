@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy import desc, func, select
@@ -15,6 +16,14 @@ from app.utils.time import utc_now
 
 async def get_overview(session: AsyncSession) -> dict[str, object]:
     total_users = await session.scalar(select(func.count(User.id)))
+    active_today = await session.scalar(
+        select(func.count(User.id)).where(
+            User.last_seen_at >= utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        )
+    )
+    active_week = await session.scalar(
+        select(func.count(User.id)).where(User.last_seen_at >= utc_now() - timedelta(days=7))
+    )
     active_memberships = await session.scalar(
         select(func.count(Membership.id)).where(
             Membership.status == MembershipStatus.ACTIVE,
@@ -39,6 +48,11 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
     expirations = await session.scalar(
         select(func.count(Membership.id)).where(Membership.status == MembershipStatus.EXPIRED)
     )
+    approved_payments = await session.scalar(
+        select(func.count(PaymentRequest.id)).where(
+            PaymentRequest.status == PaymentRequestStatus.APPROVED
+        )
+    )
     top_plans_result = await session.execute(
         select(Plan.name, func.count(PaymentRequest.id).label("sales"))
         .join(PaymentRequest, PaymentRequest.plan_id == Plan.id)
@@ -50,11 +64,17 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
     return {
         "total_users": int(total_users or 0),
         "active_users": int(active_memberships or 0),
+        "active_today": int(active_today or 0),
+        "active_week": int(active_week or 0),
         "active_memberships": int(active_memberships or 0),
         "pending_payments": int(pending_payments or 0),
         "revenue": Decimal(revenue or 0),
         "renewals": int(renewals or 0),
         "expirations": int(expirations or 0),
+        "conversion_rate": (
+            round((int(approved_payments or 0) / int(total_users or 1)) * 100, 2)
+            if int(total_users or 0)
+            else 0
+        ),
         "top_plans": [(row[0], int(row[1])) for row in top_plans_result],
     }
-

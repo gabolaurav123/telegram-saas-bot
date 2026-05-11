@@ -14,6 +14,14 @@ async def get_user_by_telegram_id(session: AsyncSession, telegram_id: int) -> Us
 
 
 async def get_or_create_user(session: AsyncSession, telegram_user: TelegramUser) -> User:
+    user, _ = await get_or_create_user_with_flag(session, telegram_user)
+    return user
+
+
+async def get_or_create_user_with_flag(
+    session: AsyncSession,
+    telegram_user: TelegramUser,
+) -> tuple[User, bool]:
     user = await get_user_by_telegram_id(session, telegram_user.id)
     now = utc_now()
     if user is None:
@@ -29,7 +37,7 @@ async def get_or_create_user(session: AsyncSession, telegram_user: TelegramUser)
         )
         session.add(user)
         await session.flush()
-        return user
+        return user, True
 
     user.username = telegram_user.username
     user.first_name = telegram_user.first_name
@@ -37,10 +45,9 @@ async def get_or_create_user(session: AsyncSession, telegram_user: TelegramUser)
     user.language_code = telegram_user.language_code
     user.is_bot = telegram_user.is_bot
     user.last_seen_at = now
-    return user
+    return user, False
 
 
 async def ban_user(session: AsyncSession, user: User) -> None:
     user.status = UserStatus.BANNED
     user.banned_at = utc_now()
-

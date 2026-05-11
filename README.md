@@ -56,6 +56,11 @@ requirements.txt
 - Expulsion automatica de usuarios vencidos.
 - Logs de auditoria en base de datos y archivo local.
 - Exportacion CSV en ZIP desde el panel de backups.
+- Log automatico a admins cuando un usuario entra por primera vez con `/start`.
+- Generacion administrativa de invite links por plan/chat con `/addmember`, `/listlinks`, `/revokelink` y `/linkstats`.
+- Broadcast por segmentos con `/broadcast`, batches, retries y resumen final.
+- Exportacion de clientes CSV/XLSX con `/exportclients`.
+- Soporte privado: mensajes de usuarios reenviados a admins y respuestas por reply.
 
 ## Variables de entorno
 
@@ -192,6 +197,13 @@ Administracion:
 
 - `/settings`
 - `/register_chat` dentro de un grupo/canal donde el bot sea admin
+- `/stats`
+- `/addmember`
+- `/listlinks`
+- `/revokelink ID`
+- `/linkstats`
+- `/broadcast`
+- `/exportclients`
 
 ## Notas de produccion
 

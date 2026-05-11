@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
@@ -38,14 +39,7 @@ async def notify_admins_about_payment(
     request: PaymentRequest,
     settings: Settings,
 ) -> None:
-    admins: list[Admin] = await list_admins(session)
-    chat_ids = _unique_chat_ids(
-        [
-            settings.admin_notification_chat_id,
-            *settings.owner_ids,
-            *(admin.telegram_id for admin in admins),
-        ]
-    )
+    chat_ids = await admin_chat_ids(session, settings)
     if not chat_ids:
         logger.warning("No admin chat IDs configured for payment notifications")
         return
@@ -80,6 +74,58 @@ async def notify_admins_about_payment(
                 )
         except TelegramAPIError:
             logger.exception("Could not notify admin chat %s about payment %s", chat_id, request.id)
+
+
+async def admin_chat_ids(session: AsyncSession, settings: Settings) -> list[int]:
+    admins: list[Admin] = await list_admins(session)
+    return _unique_chat_ids(
+        [
+            settings.admin_notification_chat_id,
+            *settings.owner_ids,
+            *(admin.telegram_id for admin in admins),
+        ]
+    )
+
+
+async def notify_admins(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    disable_web_page_preview: bool = True,
+) -> list[Message]:
+    messages: list[Message] = []
+    chat_ids = await admin_chat_ids(session, settings)
+    if not chat_ids:
+        logger.warning("No admin chat IDs configured")
+        return messages
+    for chat_id in chat_ids:
+        try:
+            sent = await bot.send_message(
+                chat_id,
+                text,
+                reply_markup=reply_markup,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+        except TelegramAPIError:
+            logger.exception("Could not notify admin chat %s", chat_id)
+            continue
+        messages.append(sent)
+    return messages
+
+
+async def send_admin_log(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    title: str,
+    lines: list[str],
+) -> list[Message]:
+    text = f"<b>{h(title)}</b>\n\n" + "\n".join(lines)
+    return await notify_admins(bot=bot, session=session, settings=settings, text=text)
 
 
 async def send_access_links(
@@ -150,4 +196,3 @@ async def send_membership_expired(
         f"{human_datetime(membership.expires_at, settings.app_timezone)}.\n\n"
         "El acceso fue revocado automaticamente. Puedes renovar desde /plans.",
     )
-

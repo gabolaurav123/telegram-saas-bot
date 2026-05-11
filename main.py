@@ -16,13 +16,17 @@ from app.database.init_db import create_db_schema
 from app.database.session import async_session_factory
 from app.handlers import (
     admin,
+    admin_broadcasts,
     admin_catalog,
     admin_chats,
+    admin_exports,
+    admin_invite_links,
     admin_payments,
     admin_users,
     common,
     plans,
     purchase,
+    support,
 )
 from app.middlewares.database import DatabaseSessionMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
@@ -89,6 +93,10 @@ async def bootstrap() -> None:
         admin_catalog.router,
         admin_chats.router,
         admin_users.router,
+        admin_invite_links.router,
+        admin_broadcasts.router,
+        admin_exports.router,
+        support.router,
     )
     dp.errors.register(on_error)
 

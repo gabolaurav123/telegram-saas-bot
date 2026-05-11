@@ -25,3 +25,14 @@ class AdminUserStates(StatesGroup):
 class AdminPaymentReviewStates(StatesGroup):
     waiting_rejection_reason = State()
 
+
+class AddMemberStates(StatesGroup):
+    waiting_amount = State()
+
+
+class BroadcastStates(StatesGroup):
+    waiting_content = State()
+
+
+class ExportClientStates(StatesGroup):
+    waiting_date_range = State()
