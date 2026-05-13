@@ -14,6 +14,7 @@ from app.models.membership import Membership
 from app.models.payment_request import PaymentRequest
 from app.services.admins import require_role
 from app.services.backups import export_csv_zip
+from app.services.bot_health import audit_managed_chat_permissions
 from app.services.stats import get_overview
 from app.services.users import get_or_create_user
 from app.utils.text import h, money
@@ -198,11 +199,40 @@ async def cb_subscription_status(callback: CallbackQuery, session: AsyncSession,
 async def cb_system_health(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
     await session.scalar(select(1))
+    bot_info = await callback.bot.get_me()
+    webhook = await callback.bot.get_webhook_info()
+    chat_health = await audit_managed_chat_permissions(
+        bot=callback.bot,
+        session=session,
+        bot_id=bot_info.id,
+    )
+    if chat_health:
+        chat_lines = []
+        for item in chat_health[:10]:
+            state = "OK" if item.operational_ok else "WARN"
+            detail = (
+                f"invite={item.can_invite_users} kick={item.can_restrict_members} "
+                f"msg={item.can_post_messages}"
+                if item.error is None
+                else h(item.error[:120])
+            )
+            chat_lines.append(
+                f"- {state} {h(item.kind)} #{item.db_id} {h(item.title)} "
+                f"status={h(item.status)} {detail}"
+            )
+        if len(chat_health) > 10:
+            chat_lines.append(f"- ... {len(chat_health) - 10} chats mas")
+    else:
+        chat_lines = ["- Sin canales/grupos activos registrados."]
     await callback.message.edit_text(
         "<b>System health</b>\n\n"
         "PostgreSQL: <b>OK</b>\n"
-        "Bot process: <b>OK</b>\n"
-        f"Environment: <code>{h(settings.app_env)}</code>",
+        f"Bot API: <b>OK</b> <code>{bot_info.id}</code> @{h(bot_info.username or '-')}\n"
+        f"Webhook: <code>{h(webhook.url or '-')}</code>\n"
+        f"Pending updates: <code>{webhook.pending_update_count}</code>\n"
+        f"Environment: <code>{h(settings.app_env)}</code>\n\n"
+        "<b>Managed chat permissions</b>\n"
+        + "\n".join(chat_lines),
         reply_markup=back_admin_keyboard(),
     )
     await callback.answer()

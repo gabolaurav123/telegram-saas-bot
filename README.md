@@ -218,6 +218,7 @@ Administracion:
 ## Notas de produccion
 
 - El bot debe ser administrador de cada canal/grupo privado para crear links y expulsar usuarios.
+- Si rotas o reemplazas el bot en BotFather, actualiza `BOT_TOKEN` en el proveedor de despliegue y vuelve a agregar el nuevo bot como admin en cada canal/grupo. El panel `System health` muestra el bot ID activo y audita permisos de invite links, expulsiones y mensajes por chat registrado.
 - Los backups generados en Railway pueden no persistir tras redeploy; usa el boton de backup para descargar el ZIP cuando lo necesites.
 - Para volumen alto, usa un PostgreSQL con pool suficiente y configura `DB_POOL_SIZE`/`DB_MAX_OVERFLOW`.
 - Si migras a webhook en el futuro, separa el scheduler en un worker unico para evitar jobs duplicados.
