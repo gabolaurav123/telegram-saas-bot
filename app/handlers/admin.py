@@ -34,7 +34,10 @@ async def cmd_settings(message: Message, session: AsyncSession, settings: Settin
     except PermissionError:
         await message.answer("No tienes permisos para abrir el panel administrativo.")
         return
-    await message.answer(_admin_menu_text(role), reply_markup=admin_menu_keyboard(role))
+    await message.answer(
+        _admin_menu_text(role),
+        reply_markup=admin_menu_keyboard(role, settings.mini_app_admin_url),
+    )
 
 
 @router.callback_query(F.data == "adm:menu")
@@ -45,8 +48,22 @@ async def cb_admin_menu(callback: CallbackQuery, session: AsyncSession, settings
     except PermissionError:
         await callback.answer("Sin permisos.", show_alert=True)
         return
-    await callback.message.edit_text(_admin_menu_text(role), reply_markup=admin_menu_keyboard(role))
+    await callback.message.edit_text(
+        _admin_menu_text(role),
+        reply_markup=admin_menu_keyboard(role, settings.mini_app_admin_url),
+    )
     await callback.answer()
+
+
+@router.callback_query(F.data == "adm:miniapp")
+async def cb_admin_miniapp(callback: CallbackQuery, settings: Settings) -> None:
+    if settings.mini_app_admin_url:
+        await callback.answer("Abre el boton Admin Mini App del panel.", show_alert=True)
+        return
+    await callback.answer(
+        "Admin Mini App no configurada. Define MINI_APP_ADMIN_URL en Seenode con una URL HTTPS.",
+        show_alert=True,
+    )
 
 
 @router.callback_query(F.data == "adm:stats")

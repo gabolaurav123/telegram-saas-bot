@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.models.payment_method import PaymentMethod
@@ -8,7 +8,7 @@ from app.models.plan import Plan
 from app.utils.text import money
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
+def main_menu_keyboard(mini_app_url: str | None = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Ver planes", callback_data="main:plans")
     builder.button(text="Comprar membresia", callback_data="main:plans")
@@ -16,7 +16,12 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     builder.button(text="Soporte", callback_data="main:support")
     builder.button(text="FAQ", callback_data="main:faq")
     builder.button(text="Renovar membresia", callback_data="main:plans")
-    builder.adjust(2, 2, 2)
+    if mini_app_url:
+        builder.button(text="Mini App", web_app=WebAppInfo(url=mini_app_url))
+        builder.adjust(2, 2, 2, 1)
+    else:
+        builder.button(text="Mini App", callback_data="main:miniapp")
+        builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 

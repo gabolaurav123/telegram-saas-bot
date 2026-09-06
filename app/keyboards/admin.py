@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.models.admin import Admin
@@ -13,7 +13,7 @@ from app.models.quick_reply import QuickReply
 from app.utils.text import money
 
 
-def admin_menu_keyboard(role: Role) -> InlineKeyboardMarkup:
+def admin_menu_keyboard(role: Role, mini_app_admin_url: str | None = None) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Planes", callback_data="adm:plans")
     builder.button(text="Metodos de pago", callback_data="adm:methods")
@@ -36,6 +36,10 @@ def admin_menu_keyboard(role: Role) -> InlineKeyboardMarkup:
     builder.button(text="Coupons", callback_data="adm:coupons")
     builder.button(text="Referrals", callback_data="adm:referrals")
     builder.button(text="Automations", callback_data="adm:automations")
+    if mini_app_admin_url:
+        builder.button(text="Admin Mini App", web_app=WebAppInfo(url=mini_app_admin_url))
+    else:
+        builder.button(text="Admin Mini App", callback_data="adm:miniapp")
     builder.button(text="System health", callback_data="adm:health")
     builder.button(text="Scheduler status", callback_data="adm:scheduler")
     builder.button(text="Usuarios", callback_data="adm:users")

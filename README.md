@@ -112,6 +112,10 @@ MINI_APP_ADMIN_URL=
 TELEGRAM_WEBHOOK_SECRET_TOKEN=
 ```
 
+Si `MINI_APP_CLIENT_URL` o `MINI_APP_ADMIN_URL` quedan vacias, Telegram mostrara el boton
+correspondiente pero el bot respondera con una alerta indicando que falta configurar la URL HTTPS.
+Para abrir una Mini App real, Seenode debe tener esas variables apuntando a un frontend HTTPS valido.
+
 ## Instalacion local
 
 ```bash

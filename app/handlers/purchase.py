@@ -211,11 +211,11 @@ async def cb_select_renewal_payment_method(
 
 
 @router.callback_query(F.data == "purchase:cancel")
-async def cb_cancel_purchase(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_cancel_purchase(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
     await state.clear()
     await callback.message.edit_text(
         "Compra cancelada. Puedes volver al menu principal.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
     await callback.answer()
 
@@ -269,7 +269,7 @@ async def receive_payment_proof(
             metadata_json=metadata_json,
         )
     except (TelegramAPIError, ValueError) as exc:
-        await message.answer(str(exc), reply_markup=main_menu_keyboard())
+        await message.answer(str(exc), reply_markup=main_menu_keyboard(settings.mini_app_client_url))
         await state.clear()
         return
 
@@ -283,7 +283,7 @@ async def receive_payment_proof(
     await message.answer(
         "<b>Comprobante recibido</b>\n\n"
         "Tu solicitud quedo pendiente de revision. Te notificaremos cuando sea aprobada o rechazada.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
     await state.clear()
 
@@ -335,7 +335,7 @@ async def _send_stars_invoice(
         "<b>Pago con Telegram Stars</b>\n\n"
         "Te envie una factura nativa de Telegram. El acceso se activara automaticamente "
         "solo cuando Telegram confirme el pago.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
     await callback.answer()
 

@@ -68,16 +68,27 @@ async def cmd_start(
         "tu acceso premium de forma automatica.\n\n"
         "Selecciona una opcion:"
     )
-    await message.answer(text, reply_markup=main_menu_keyboard())
+    await message.answer(text, reply_markup=main_menu_keyboard(settings.mini_app_client_url))
 
 
 @router.callback_query(F.data == "main:menu")
 async def cb_main_menu(callback: CallbackQuery, settings: Settings) -> None:
     await callback.message.edit_text(
         f"<b>{h(settings.public_brand_name)}</b>\n\nSelecciona una opcion:",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "main:miniapp")
+async def cb_main_miniapp(callback: CallbackQuery, settings: Settings) -> None:
+    if settings.mini_app_client_url:
+        await callback.answer("Abre el boton Mini App del menu.", show_alert=True)
+        return
+    await callback.answer(
+        "Mini App cliente no configurada. Define MINI_APP_CLIENT_URL en Seenode con una URL HTTPS.",
+        show_alert=True,
+    )
 
 
 @router.message(Command("help"))
@@ -121,7 +132,7 @@ async def cmd_profile(message: Message, session: AsyncSession, settings: Setting
     user = await get_or_create_user(session, message.from_user)
     await message.answer(
         await _membership_status_text(session, user.id, settings),
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
 
 
@@ -130,19 +141,22 @@ async def cb_membership(callback: CallbackQuery, session: AsyncSession, settings
     user = await get_or_create_user(session, callback.from_user)
     await callback.message.edit_text(
         await _membership_status_text(session, user.id, settings),
-        reply_markup=main_menu_keyboard(),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
     )
     await callback.answer()
 
 
 @router.message(Command("support"))
 async def cmd_support(message: Message, settings: Settings) -> None:
-    await message.answer(_support_text(settings), reply_markup=main_menu_keyboard())
+    await message.answer(_support_text(settings), reply_markup=main_menu_keyboard(settings.mini_app_client_url))
 
 
 @router.callback_query(F.data == "main:support")
 async def cb_support(callback: CallbackQuery, settings: Settings) -> None:
-    await callback.message.edit_text(_support_text(settings), reply_markup=main_menu_keyboard())
+    await callback.message.edit_text(
+        _support_text(settings),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+    )
     await callback.answer()
 
 
@@ -159,7 +173,11 @@ async def cb_faq(callback: CallbackQuery, settings: Settings) -> None:
     )
     if settings.faq_url:
         text += f"\n\nFAQ completa: {h(settings.faq_url)}"
-    await callback.message.edit_text(text, reply_markup=main_menu_keyboard(), disable_web_page_preview=True)
+    await callback.message.edit_text(
+        text,
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        disable_web_page_preview=True,
+    )
     await callback.answer()
 
 
