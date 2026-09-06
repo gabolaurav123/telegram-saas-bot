@@ -39,7 +39,7 @@ async def cmd_addmember(message: Message, session: AsyncSession, settings: Setti
     plans = await list_plans(session, only_active=True)
     await message.answer(
         "<b>Generar invite links</b>\n\nSelecciona el plan:",
-        reply_markup=plan_select_keyboard(plans, "addm:plan"),
+        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:section:operations"),
     )
 
 
@@ -51,10 +51,10 @@ async def cb_links_panel(callback: CallbackQuery, session: AsyncSession, setting
     builder.button(text="Generar links", callback_data="links:add")
     builder.button(text="Listar links", callback_data="links:list")
     builder.button(text="Estadisticas", callback_data="links:stats")
-    builder.button(text="Volver", callback_data="adm:menu")
+    builder.button(text="Volver", callback_data="adm:section:operations")
     builder.adjust(1)
     await callback.message.edit_text(
-        "<b>Invite links</b>\n\n"
+        "<b>Enlaces de invitacion</b>\n\n"
         f"Total: <b>{stats['total']}</b>\n"
         f"Activos: <b>{stats['active']}</b>\n"
         f"Usados: <b>{stats['used']}</b>\n"
@@ -72,7 +72,7 @@ async def cb_links_add(callback: CallbackQuery, session: AsyncSession, settings:
     plans = await list_plans(session, only_active=True)
     await callback.message.edit_text(
         "<b>Generar invite links</b>\n\nSelecciona el plan:",
-        reply_markup=plan_select_keyboard(plans, "addm:plan"),
+        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:section:operations"),
     )
     await callback.answer()
 
@@ -150,7 +150,7 @@ async def list_links(event: Message | CallbackQuery, session: AsyncSession, sett
     await require_role(session, event.from_user.id, settings, Role.ADMIN)
     links = await list_recent_links(session, limit=20)
     if not links:
-        text = "<b>Invite links</b>\n\nNo hay links generados."
+        text = "<b>Enlaces de invitacion</b>\n\nNo hay enlaces generados."
         keyboard = None
     else:
         text = "<b>Ultimos invite links</b>\n\n" + "\n".join(

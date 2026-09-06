@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -40,13 +41,16 @@ class Settings(BaseSettings):
     faq_url: str | None = Field(default=None, alias="FAQ_URL")
     public_brand_name: str = Field(default="Premium Access", alias="PUBLIC_BRAND_NAME")
     default_language: str = Field(default="es", alias="DEFAULT_LANGUAGE")
-    supported_languages: list[str] = Field(default_factory=lambda: ["es", "en"], alias="SUPPORTED_LANGUAGES")
+    supported_languages: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["es", "en"],
+        alias="SUPPORTED_LANGUAGES",
+    )
 
     admin_notification_chat_id: int | None = Field(
         default=None, alias="ADMIN_NOTIFICATION_CHAT_ID"
     )
     default_currency: str = Field(default="USD", alias="DEFAULT_CURRENCY")
-    currency_usd_rates: dict[str, Decimal] = Field(
+    currency_usd_rates: Annotated[dict[str, Decimal], NoDecode] = Field(
         default_factory=lambda: {"USD": Decimal("1")},
         alias="CURRENCY_USD_RATES",
     )
@@ -75,13 +79,25 @@ class Settings(BaseSettings):
     ocr_enabled: bool = Field(default=False, alias="OCR_ENABLED")
     smart_replies_enabled: bool = Field(default=False, alias="SMART_REPLIES_ENABLED")
     telegram_stars_enabled: bool = Field(default=True, alias="TELEGRAM_STARS_ENABLED")
-    telegram_stars_default_ratio: Decimal = Field(default=Decimal("100"), alias="TELEGRAM_STARS_DEFAULT_RATIO")
+    telegram_stars_default_ratio: Decimal = Field(
+        default=Decimal("44.11764706"),
+        alias="TELEGRAM_STARS_DEFAULT_RATIO",
+    )
     telegram_stars_per_usd: Decimal | None = Field(default=None, alias="TELEGRAM_STARS_PER_USD")
     external_payments_enabled: bool = Field(default=False, alias="EXTERNAL_PAYMENTS_ENABLED")
     external_payment_webhook_secret: str | None = Field(default=None, alias="EXTERNAL_PAYMENT_WEBHOOK_SECRET")
     mini_app_client_url: str | None = Field(default=None, alias="MINI_APP_CLIENT_URL")
     mini_app_admin_url: str | None = Field(default=None, alias="MINI_APP_ADMIN_URL")
     telegram_webhook_secret_token: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET_TOKEN")
+
+    web_enabled: bool = Field(default=True, alias="WEB_ENABLED")
+    web_host: str = Field(default="0.0.0.0", alias="WEB_HOST")
+    port: int = Field(default=8000, alias="PORT", ge=1, le=65535)
+    telegram_webapp_max_age_seconds: int = Field(
+        default=86400,
+        alias="TELEGRAM_WEBAPP_MAX_AGE_SECONDS",
+        ge=60,
+    )
 
     auto_create_db: bool = Field(default=False, alias="AUTO_CREATE_DB")
     db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
@@ -117,7 +133,11 @@ class Settings(BaseSettings):
         if value in (None, ""):
             return ["es", "en"]
         if isinstance(value, str):
-            return [item.lower().strip() for item in value.split(",") if item.strip()]
+            stripped = value.strip()
+            if stripped.startswith("["):
+                value = json.loads(stripped)
+            else:
+                return [item.lower().strip() for item in value.split(",") if item.strip()]
         if isinstance(value, list):
             return [str(item).lower().strip() for item in value if str(item).strip()]
         raise TypeError("SUPPORTED_LANGUAGES must be a comma separated list")
@@ -132,8 +152,6 @@ class Settings(BaseSettings):
             if not stripped:
                 return {"USD": Decimal("1")}
             if stripped.startswith("{"):
-                import json
-
                 value = json.loads(stripped)
             else:
                 pairs: dict[str, Decimal] = {}
@@ -171,7 +189,7 @@ class Settings(BaseSettings):
         if self.telegram_stars_per_usd:
             return self.telegram_stars_per_usd
         if not self.telegram_stars_default_ratio or self.telegram_stars_default_ratio <= Decimal("1"):
-            return Decimal("100")
+            return Decimal("44.11764706")
         return self.telegram_stars_default_ratio
 
     @property

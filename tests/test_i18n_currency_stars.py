@@ -38,7 +38,7 @@ class CurrencyStarsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_price_to_stars(plan, settings)
 
-    def test_legacy_ratio_one_falls_back_to_safe_default(self) -> None:
+    def test_legacy_ratio_one_falls_back_to_configured_market_reference(self) -> None:
         settings = Settings(
             BOT_TOKEN="123:ABC",
             DATABASE_URL="postgresql://user:pass@localhost/db",
@@ -48,7 +48,34 @@ class CurrencyStarsTests(unittest.TestCase):
         )
         plan = Plan(name="VIP USD", slug="vip-usd", price=Decimal("10"), currency="USD", duration_days=30)
 
-        self.assertEqual(plan_price_to_stars(plan, settings).stars_amount, 1000)
+        self.assertEqual(plan_price_to_stars(plan, settings).stars_amount, 441)
+
+    def test_220_mxn_uses_usd_then_1500_stars_per_34_usd(self) -> None:
+        settings = Settings(
+            BOT_TOKEN="123:ABC",
+            DATABASE_URL="postgresql://user:pass@localhost/db",
+            OWNER_ID=1,
+            CURRENCY_USD_RATES="USD=1,MXN=0.05926",
+            TELEGRAM_STARS_PER_USD=str(Decimal("1500") / Decimal("34")),
+        )
+        plan = Plan(name="VIP MXN", slug="vip-mxn", price=Decimal("220"), currency="MXN", duration_days=30)
+
+        conversion = plan_price_to_stars(plan, settings)
+
+        self.assertEqual(conversion.usd_amount, Decimal("13.04"))
+        self.assertEqual(conversion.stars_amount, 575)
+
+    def test_comma_separated_complex_settings_are_not_json_decoded_first(self) -> None:
+        settings = Settings(
+            BOT_TOKEN="123:ABC",
+            DATABASE_URL="postgresql://user:pass@localhost/db",
+            OWNER_ID=1,
+            SUPPORTED_LANGUAGES="es,en,pt",
+            CURRENCY_USD_RATES="USD=1,MXN=0.05926",
+        )
+
+        self.assertEqual(settings.supported_languages, ["es", "en", "pt"])
+        self.assertEqual(settings.currency_usd_rates["MXN"], Decimal("0.05926"))
 
     def test_plan_exact_stars_override_is_preserved(self) -> None:
         settings = Settings(

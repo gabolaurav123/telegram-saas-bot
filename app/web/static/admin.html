@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101514">
+  <title>Panel administrativo</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/assets/admin.js" defer></script>
+</head>
+<body class="admin-app">
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <div class="brand-lockup admin-brand">
+        <div class="brand-mark" aria-hidden="true">L</div>
+        <div>
+          <p class="eyebrow light">CONTROL</p>
+          <h1 id="brand-name">Premium</h1>
+        </div>
+      </div>
+      <nav class="admin-nav" aria-label="Panel">
+        <button class="nav-item active" data-view="overview" type="button">Resumen</button>
+        <button class="nav-item" data-view="pending" type="button">Aprobaciones <span id="pending-nav-count">0</span></button>
+        <button class="nav-item" data-view="plans" type="button">Planes y pagos</button>
+        <button class="nav-item" data-view="system" type="button">Configuracion</button>
+      </nav>
+      <div class="admin-identity">
+        <span id="admin-avatar" class="avatar">A</span>
+        <div>
+          <strong id="admin-name">Administrador</strong>
+          <small id="admin-role">ROLE</small>
+        </div>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <section id="loading-view" class="state-view">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Cargando panel...</p>
+      </section>
+      <section id="error-view" class="state-view" hidden>
+        <div class="status-symbol">!</div>
+        <h2>Acceso no disponible</h2>
+        <p id="error-message">Abre el panel desde Telegram.</p>
+      </section>
+
+      <div id="admin-content" hidden>
+        <header class="admin-header">
+          <div>
+            <p class="eyebrow">PANEL ADMINISTRATIVO</p>
+            <h2 id="view-title">Resumen</h2>
+          </div>
+          <button id="refresh-button" class="icon-button" type="button" title="Actualizar" aria-label="Actualizar">&#8635;</button>
+        </header>
+
+        <section id="view-overview" class="admin-view active">
+          <div id="stats-grid" class="stats-grid"></div>
+          <div class="content-band">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">ACCION REQUERIDA</p>
+                <h3>Pagos por revisar</h3>
+              </div>
+              <button class="text-button" data-view-link="pending" type="button">Ver todos</button>
+            </div>
+            <div id="pending-preview" class="stack-list"></div>
+          </div>
+        </section>
+
+        <section id="view-pending" class="admin-view">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">PAGOS MANUALES</p>
+              <h3>Solicitudes pendientes</h3>
+            </div>
+            <span id="pending-count" class="count-badge">0</span>
+          </div>
+          <div id="pending-list" class="stack-list"></div>
+        </section>
+
+        <section id="view-plans" class="admin-view">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CATALOGO</p>
+              <h3>Planes y metodos activos</h3>
+            </div>
+          </div>
+          <p class="section-intro">Activa o desactiva cada metodo por plan. Los usuarios solo veran los metodos habilitados.</p>
+          <div id="admin-plans-list" class="plans-grid admin-plans"></div>
+        </section>
+
+        <section id="view-system" class="admin-view">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">AJUSTES GLOBALES</p>
+              <h3>Configuracion operativa</h3>
+            </div>
+          </div>
+          <p class="section-intro">Los cambios se guardan en PostgreSQL y sobreviven a los redeploys.</p>
+          <div id="settings-form" class="settings-list"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="reject-dialog" class="modal">
+    <form id="reject-form" method="dialog">
+      <input id="reject-payment-id" type="hidden">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">RECHAZAR PAGO</p>
+          <h3>Indica el motivo</h3>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Cerrar" type="submit">&#215;</button>
+      </div>
+      <label for="reject-reason">Motivo para el usuario</label>
+      <textarea id="reject-reason" rows="4" maxlength="500" required>Comprobante no aprobado.</textarea>
+      <div class="modal-actions">
+        <button class="button secondary" value="cancel" type="submit">Cancelar</button>
+        <button id="confirm-reject" class="button danger" value="default" type="button">Rechazar pago</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="proof-dialog" class="modal proof-modal">
+    <div class="modal-header">
+      <div>
+        <p class="eyebrow">COMPROBANTE</p>
+        <h3 id="proof-title">Solicitud</h3>
+      </div>
+      <button id="close-proof" class="icon-button" aria-label="Cerrar" type="button">&#215;</button>
+    </div>
+    <div id="proof-content" class="proof-content"></div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

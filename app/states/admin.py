@@ -43,3 +43,13 @@ class ExportClientStates(StatesGroup):
 
 class QuickReplyStates(StatesGroup):
     waiting_payload = State()
+
+
+class AdminCouponStates(StatesGroup):
+    waiting_code = State()
+    waiting_value = State()
+    waiting_max_uses = State()
+
+
+class AdminConfigStates(StatesGroup):
+    waiting_value = State()

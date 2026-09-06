@@ -53,6 +53,22 @@ class TelegramWebAppTests(unittest.TestCase):
         self.assertEqual(parsed.id, 42)
         self.assertEqual(parsed.username, "gabriel")
 
+    def test_expired_webapp_data_is_rejected(self) -> None:
+        token = "123:ABC"
+        values = {
+            "auth_date": "100",
+            "query_id": "AAH-test",
+            "user": json.dumps({"id": 42}, separators=(",", ":")),
+        }
+        data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(values.items()))
+        secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+        payload_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        init_data = "&".join(f"{key}={quote(value)}" for key, value in values.items()) + f"&hash={payload_hash}"
+
+        self.assertFalse(
+            validate_webapp_init_data(init_data, token, max_age_seconds=60, now=1000)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

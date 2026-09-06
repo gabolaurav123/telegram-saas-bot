@@ -72,7 +72,7 @@ async def cb_inbox_view(callback: CallbackQuery, session: AsyncSession, settings
     builder.button(text="Volver", callback_data="adm:inbox")
     builder.adjust(2, 1)
     lines = [
-        "<b>Inbox thread</b>",
+        "<b>Conversacion de soporte</b>",
         "",
         f"Usuario: <b>{h(thread.user.display_name)}</b>",
         f"Telegram ID: <code>{thread.user.telegram_id}</code>",
@@ -147,7 +147,7 @@ async def _inbox_payload(session: AsyncSession, settings: Settings):
         )
     )
     builder = InlineKeyboardBuilder()
-    lines = ["<b>Admin inbox</b>", ""]
+    lines = ["<b>Bandeja de soporte</b>", ""]
     if not threads:
         lines.append("Sin mensajes de soporte.")
     for thread in threads:
@@ -157,6 +157,11 @@ async def _inbox_payload(session: AsyncSession, settings: Settings):
             f"#{thread.id} | {h(thread.status)} | {h(thread.user.display_name)} | "
             f"no leidos admin: {thread.unread_admin_count}"
         )
-    builder.button(text="Volver", callback_data="adm:menu")
+    builder.button(text="Volver", callback_data="adm:section:clients")
     builder.adjust(1)
-    return "\n".join(lines), builder.as_markup() if threads else back_admin_keyboard()
+    return (
+        "\n".join(lines),
+        builder.as_markup()
+        if threads
+        else back_admin_keyboard("adm:section:clients", "Volver a clientes"),
+    )

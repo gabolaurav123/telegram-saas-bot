@@ -96,6 +96,81 @@ async def forward_user_message_to_admins(
     return sent_count
 
 
+async def forward_webapp_text_to_admins(
+    *,
+    bot: Bot,
+    session: AsyncSession,
+    settings: Settings,
+    user: User,
+    text: str,
+) -> int:
+    """Create a ticket-lite message from the Mini App and keep reply bridging intact."""
+
+    thread = await session.scalar(select(SupportThread).where(SupportThread.user_id == user.id))
+    if thread is None:
+        thread = SupportThread(
+            user_id=user.id,
+            status="OPEN",
+            unread_admin_count=1,
+            last_message_at=utc_now(),
+        )
+        session.add(thread)
+        await session.flush()
+    else:
+        thread.status = "OPEN"
+        thread.last_message_at = utc_now()
+        thread.unread_admin_count += 1
+
+    inbox = InboxMessage(
+        support_thread_id=thread.id,
+        user_id=user.id,
+        direction="USER_TO_ADMIN",
+        telegram_chat_id=user.chat_id or user.telegram_id,
+        telegram_message_id=None,
+        content_type="text",
+        text=text,
+        sent_at=utc_now(),
+        metadata_json={"source": "MINI_APP"},
+    )
+    session.add(inbox)
+    await session.flush()
+
+    header = (
+        "<b>Nuevo mensaje de usuario</b>\n\n"
+        f"Nombre: {h(user.display_name)}\n"
+        f"ID: <code>{user.telegram_id}</code>\n"
+        "Origen: Mini App\n\n"
+        f"Mensaje:\n{h(text)}\n\n"
+        "Responde a este mensaje para contestar al usuario."
+    )
+    sent_count = 0
+    for chat_id in await admin_chat_ids(session, settings):
+        try:
+            sent = await bot.send_message(chat_id, header)
+        except TelegramAPIError:
+            continue
+        session.add(
+            SupportReplyMap(
+                thread_id=thread.id,
+                user_id=user.id,
+                admin_chat_id=chat_id,
+                admin_message_id=sent.message_id,
+                user_message_id=None,
+                metadata_json={"source": "MINI_APP", "inbox_message_id": inbox.id},
+            )
+        )
+        sent_count += 1
+
+    await log_event(
+        session,
+        LogAction.SUPPORT_MESSAGE,
+        f"Mensaje Mini App reenviado a {sent_count} admins",
+        target_user_id=user.id,
+        details={"thread_id": thread.id, "inbox_message_id": inbox.id},
+    )
+    return sent_count
+
+
 async def bridge_admin_reply(
     *,
     bot: Bot,

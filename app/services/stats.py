@@ -6,6 +6,7 @@ from decimal import Decimal
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config.settings import Settings
 from app.models.access_event import MembershipAccessEvent
 from app.models.enums import AccessEventKind, CRMStatus, LogAction, MembershipStatus, PaymentRequestStatus
 from app.models.log import SystemLog
@@ -16,7 +17,7 @@ from app.models.user import User
 from app.utils.time import utc_now
 
 
-async def get_overview(session: AsyncSession) -> dict[str, object]:
+async def get_overview(session: AsyncSession, settings: Settings | None = None) -> dict[str, object]:
     total_users = await session.scalar(select(func.count(User.id)))
     active_today = await session.scalar(
         select(func.count(User.id)).where(
@@ -37,11 +38,7 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
             PaymentRequest.status == PaymentRequestStatus.PENDING
         )
     )
-    revenue = await session.scalar(
-        select(func.coalesce(func.sum(PaymentRequest.amount), 0)).where(
-            PaymentRequest.status == PaymentRequestStatus.APPROVED
-        )
-    )
+    revenue, unconverted_currencies = await _approved_revenue_usd(session, settings)
     renewals = await session.scalar(
         select(func.count(PaymentRequest.id)).where(
             PaymentRequest.status == PaymentRequestStatus.APPROVED
@@ -96,6 +93,8 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
         "payment_pending": int(payment_pending or 0),
         "recovered": int(recovered or 0),
         "revenue": Decimal(revenue or 0),
+        "revenue_currency": "USD",
+        "unconverted_currencies": unconverted_currencies,
         "renewals": int(renewals or 0),
         "renewal_requested": int(renewal_requested or 0),
         "renewal_approved": int(renewal_approved or 0),
@@ -109,3 +108,50 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
         ),
         "top_plans": [(row[0], int(row[1])) for row in top_plans_result],
     }
+
+
+async def _approved_revenue_usd(
+    session: AsyncSession,
+    settings: Settings | None,
+) -> tuple[Decimal, list[str]]:
+    if settings is None:
+        raw_total = await session.scalar(
+            select(func.coalesce(func.sum(PaymentRequest.amount), 0)).where(
+                PaymentRequest.status == PaymentRequestStatus.APPROVED
+            )
+        )
+        return Decimal(raw_total or 0), []
+    rows = await session.execute(
+        select(
+            PaymentRequest.currency,
+            func.coalesce(func.sum(PaymentRequest.amount), 0),
+        )
+        .where(
+            PaymentRequest.status == PaymentRequestStatus.APPROVED,
+            PaymentRequest.currency != "XTR",
+        )
+        .group_by(PaymentRequest.currency)
+    )
+    totals = [(str(currency).upper(), Decimal(amount or 0)) for currency, amount in rows]
+    total_usd = Decimal("0")
+    missing: list[str] = []
+    for currency, amount in totals:
+        rate = settings.currency_usd_rates.get(currency)
+        if rate is None:
+            missing.append(currency)
+            continue
+        total_usd += amount * rate
+
+    stars_rows = await session.execute(
+        select(PaymentRequest.amount, PaymentRequest.metadata_json).where(
+            PaymentRequest.status == PaymentRequestStatus.APPROVED,
+            PaymentRequest.currency == "XTR",
+        )
+    )
+    for amount, metadata in stars_rows:
+        historical_usd = (metadata or {}).get("usd_amount")
+        if historical_usd not in (None, ""):
+            total_usd += Decimal(str(historical_usd))
+        else:
+            total_usd += Decimal(amount or 0) / settings.effective_stars_per_usd
+    return total_usd.quantize(Decimal("0.01")), sorted(set(missing))

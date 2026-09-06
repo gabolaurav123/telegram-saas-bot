@@ -28,6 +28,19 @@ async def get_payment_request(session: AsyncSession, request_id: int) -> Payment
     )
 
 
+async def get_payment_request_for_update(
+    session: AsyncSession,
+    request_id: int,
+) -> PaymentRequest | None:
+    """Lock a payment row so multiple replicas cannot review it concurrently."""
+
+    return await session.scalar(
+        _payment_request_options(select(PaymentRequest))
+        .where(PaymentRequest.id == request_id)
+        .with_for_update()
+    )
+
+
 async def create_payment_request(
     session: AsyncSession,
     *,

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101514">
+  <title>Premium</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="/assets/client.js" defer></script>
+</head>
+<body class="client-app">
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-lockup">
+        <div class="brand-mark" aria-hidden="true">L</div>
+        <div>
+          <p class="eyebrow">MEMBRESIAS</p>
+          <h1 id="brand-name">Premium</h1>
+        </div>
+      </div>
+      <label class="language-control" title="Idioma">
+        <span class="sr-only">Idioma</span>
+        <select id="language-select" aria-label="Idioma"></select>
+      </label>
+    </header>
+
+    <main>
+      <section id="loading-view" class="state-view">
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Preparando tu cuenta...</p>
+      </section>
+
+      <section id="error-view" class="state-view" hidden>
+        <div class="status-symbol">!</div>
+        <h2>No pudimos abrir tu cuenta</h2>
+        <p id="error-message">Abre esta Mini App desde Telegram.</p>
+        <a id="open-bot-link" class="button primary" href="https://t.me/">Abrir el bot</a>
+      </section>
+
+      <div id="app-view" hidden>
+        <section class="welcome-band">
+          <div>
+            <p class="eyebrow light">TU ESPACIO PREMIUM</p>
+            <h2 id="welcome-title">Hola</h2>
+            <p id="welcome-copy">Gestiona tu acceso en pocos pasos.</p>
+          </div>
+          <button class="button accent" type="button" data-tab-target="plans">Comprar membresia</button>
+        </section>
+
+        <nav class="tabbar" aria-label="Secciones">
+          <button class="tab active" type="button" data-tab-target="home">Inicio</button>
+          <button class="tab" type="button" data-tab-target="plans">Planes</button>
+          <button class="tab" type="button" data-tab-target="support">Soporte</button>
+        </nav>
+
+        <section id="tab-home" class="tab-panel active">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">ESTADO</p>
+              <h2>Tu membresia</h2>
+            </div>
+            <span id="membership-count" class="count-badge">0</span>
+          </div>
+          <div id="membership-list" class="stack-list"></div>
+
+          <div class="section-heading compact-top">
+            <div>
+              <p class="eyebrow">RECOMENDADO</p>
+              <h2>Acceso disponible</h2>
+            </div>
+          </div>
+          <div id="featured-plan"></div>
+        </section>
+
+        <section id="tab-plans" class="tab-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CATALOGO</p>
+              <h2>Elige tu plan</h2>
+            </div>
+          </div>
+          <p class="section-intro">El precio, la duracion y los metodos disponibles se muestran antes de pagar.</p>
+          <div id="plans-list" class="plans-grid"></div>
+        </section>
+
+        <section id="tab-support" class="tab-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">AYUDA PRIVADA</p>
+              <h2>Habla con soporte</h2>
+            </div>
+          </div>
+          <p class="section-intro">Escribe tu consulta. Un administrador la recibira en Telegram y podra responderte directamente.</p>
+          <form id="support-form" class="support-form">
+            <label for="support-message">Tu mensaje</label>
+            <textarea id="support-message" rows="6" maxlength="3000" placeholder="Describe lo que necesitas..." required></textarea>
+            <div class="form-footer">
+              <span id="support-count">0 / 3000</span>
+              <button class="button primary" type="submit">Enviar a soporte</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

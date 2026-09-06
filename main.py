@@ -35,6 +35,9 @@ from app.middlewares.rate_limit import RateLimitMiddleware
 from app.scheduler.setup import setup_scheduler
 from app.services.payment_methods import ensure_default_payment_methods
 from app.services.quick_replies import ensure_default_quick_replies
+from app.services.runtime_settings import load_runtime_settings
+from app.services.telegram_ui import configure_telegram_ui
+from app.web.server import start_web_server
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,8 @@ async def bootstrap() -> None:
         logger.info("Checking PostgreSQL connectivity")
         await session.scalar(text("select 1"))
         logger.info("PostgreSQL connectivity OK")
+        runtime_overrides = await load_runtime_settings(session, settings)
+        logger.info("Runtime settings loaded from PostgreSQL | count=%s", runtime_overrides)
         logger.info("Ensuring default payment methods")
         await ensure_default_payment_methods(session)
         logger.info("Ensuring default quick replies")
@@ -76,6 +81,9 @@ async def bootstrap() -> None:
     )
     me = await bot.get_me()
     logger.info("Telegram bot authenticated | id=%s username=@%s", me.id, me.username)
+
+    async with async_session_factory() as session:
+        await configure_telegram_ui(bot, session, settings)
 
     dp = Dispatcher(storage=MemoryStorage())
     dp.workflow_data.update(settings=settings)
@@ -108,10 +116,19 @@ async def bootstrap() -> None:
     dp.errors.register(on_error)
 
     scheduler = None
+    web_server = None
     if settings.scheduler_enabled:
         scheduler = setup_scheduler(bot, settings)
         scheduler.start()
         logger.info("Scheduler started")
+
+    if settings.web_enabled:
+        web_server = await start_web_server(
+            bot=bot,
+            settings=settings,
+            session_factory=async_session_factory,
+            bot_username=me.username or "",
+        )
 
     try:
         await bot.delete_webhook(drop_pending_updates=True)
@@ -121,6 +138,9 @@ async def bootstrap() -> None:
         if scheduler:
             scheduler.shutdown(wait=False)
             logger.info("Scheduler stopped")
+        if web_server:
+            await web_server.stop()
+            logger.info("Mini App HTTP server stopped")
         await bot.session.close()
         logger.info("Bot session closed")
 

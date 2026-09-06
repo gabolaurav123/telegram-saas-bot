@@ -40,7 +40,7 @@ async def cb_export_plan_select(callback: CallbackQuery, session: AsyncSession, 
     plans = await list_plans(session)
     await callback.message.edit_text(
         "<b>Exportar por plan</b>\n\nSelecciona plan:",
-        reply_markup=plan_select_keyboard(plans, "export:plan"),
+        reply_markup=plan_select_keyboard(plans, "export:plan", back_callback="adm:section:clients"),
     )
     await callback.answer()
 

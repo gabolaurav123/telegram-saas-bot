@@ -68,8 +68,8 @@ _TRANSLATIONS = {
         "membership.title": "<b>Estado de membresia</b>",
         "membership.expires": "Vence",
         "membership.days_left": "Dias restantes",
-        "support.unset": "<b>Soporte</b>\n\nSoporte aun no esta configurado. Pide al administrador definir SUPPORT_URL.",
-        "support.url": "<b>Soporte</b>\n\nContacta al equipo desde este enlace:\n{url}",
+        "support.prompt": "<b>Soporte privado</b>\n\nEscribe y envia tu mensaje ahora en este chat. Puede ser texto, foto, video, documento, sticker o nota de voz. El equipo lo recibira y te respondera de forma privada.",
+        "support.url": "<b>Soporte privado</b>\n\nEscribe tu mensaje ahora en este chat o usa este contacto:\n{url}",
         "faq.body": "<b>FAQ</b>\n\n<b>Los links son permanentes?</b>\nNo. Son temporales y de un solo uso.\n\n<b>Cuando recibo acceso?</b>\nDespues de que un administrador apruebe el comprobante.\n\n<b>Puedo renovar?</b>\nSi. Elige un plan desde /plans y envia el nuevo comprobante.",
     },
     "en": {
@@ -128,8 +128,8 @@ _TRANSLATIONS = {
         "membership.title": "<b>Membership status</b>",
         "membership.expires": "Expires",
         "membership.days_left": "Days left",
-        "support.unset": "<b>Support</b>\n\nSupport is not configured yet. Ask the admin to set SUPPORT_URL.",
-        "support.url": "<b>Support</b>\n\nContact the team here:\n{url}",
+        "support.prompt": "<b>Private support</b>\n\nWrite and send your message now in this chat. You can send text, photos, videos, documents, stickers or voice notes. The team will receive it and reply privately.",
+        "support.url": "<b>Private support</b>\n\nWrite your message now in this chat or use this contact:\n{url}",
         "faq.body": "<b>FAQ</b>\n\n<b>Are links permanent?</b>\nNo. They are temporary and single-use.\n\n<b>When do I receive access?</b>\nAfter an admin approves the receipt.\n\n<b>Can I renew?</b>\nYes. Choose a plan from /plans and send the new receipt.",
     },
     "pt": {
@@ -188,8 +188,8 @@ _TRANSLATIONS = {
         "membership.title": "<b>Status da assinatura</b>",
         "membership.expires": "Vence",
         "membership.days_left": "Dias restantes",
-        "support.unset": "<b>Suporte</b>\n\nSuporte ainda nao configurado. Peca ao administrador para definir SUPPORT_URL.",
-        "support.url": "<b>Suporte</b>\n\nFale com a equipe neste link:\n{url}",
+        "support.prompt": "<b>Suporte privado</b>\n\nEscreva e envie sua mensagem agora neste chat. Voce pode enviar texto, foto, video, documento, sticker ou audio. A equipe recebera e respondera em privado.",
+        "support.url": "<b>Suporte privado</b>\n\nEscreva sua mensagem agora neste chat ou use este contato:\n{url}",
         "faq.body": "<b>FAQ</b>\n\n<b>Os links sao permanentes?</b>\nNao. Sao temporarios e de uso unico.\n\n<b>Quando recebo acesso?</b>\nDepois que um administrador aprovar o comprovante.\n\n<b>Posso renovar?</b>\nSim. Escolha um plano em /plans e envie o novo comprovante.",
     },
 }

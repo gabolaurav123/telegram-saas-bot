@@ -11,18 +11,16 @@ from app.utils.text import money
 
 def main_menu_keyboard(mini_app_url: str | None = None, language: str = "es") -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text=t(language, "btn.view_plans"), callback_data="main:plans")
     builder.button(text=t(language, "btn.buy_membership"), callback_data="main:plans")
+    builder.button(text=t(language, "btn.view_plans"), callback_data="main:plans")
     builder.button(text=t(language, "btn.membership_status"), callback_data="main:membership")
+    builder.button(text=t(language, "btn.renew"), callback_data="main:plans")
     builder.button(text=t(language, "btn.support"), callback_data="main:support")
     builder.button(text=t(language, "btn.faq"), callback_data="main:faq")
-    builder.button(text=t(language, "btn.renew"), callback_data="main:plans")
     builder.button(text=t(language, "btn.language"), callback_data="lang:select")
     if mini_app_url:
         builder.button(text=t(language, "btn.mini_app"), web_app=WebAppInfo(url=mini_app_url))
-    else:
-        builder.button(text=t(language, "btn.mini_app"), callback_data="main:miniapp")
-    builder.adjust(2, 2, 2, 2)
+    builder.adjust(1, 2, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -85,13 +83,26 @@ def cancel_purchase_keyboard(language: str = "es") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def language_keyboard(current_language: str, supported_languages: list[str]) -> InlineKeyboardMarkup:
+def language_keyboard(
+    current_language: str,
+    supported_languages: list[str],
+    *,
+    back_callback: str = "main:menu",
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     for code in supported_languages:
         normalized = code.lower().strip()
         label = LANGUAGE_LABELS.get(normalized, normalized.upper())
         prefix = "ON " if normalized == current_language else ""
         builder.button(text=f"{prefix}{label}", callback_data=f"lang:set:{normalized}")
-    builder.button(text=t(current_language, "btn.back"), callback_data="main:menu")
+    builder.button(text=t(current_language, "btn.back"), callback_data=back_callback)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def support_keyboard(language: str = "es") -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text=t(language, "btn.buy_membership"), callback_data="main:plans")
+    builder.button(text=t(language, "btn.back"), callback_data="main:menu")
     builder.adjust(1)
     return builder.as_markup()

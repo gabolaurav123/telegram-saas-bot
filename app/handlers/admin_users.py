@@ -9,7 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
-from app.keyboards.admin import admins_keyboard, back_admin_keyboard, user_admin_actions_keyboard
+from app.keyboards.admin import (
+    admin_detail_keyboard,
+    admins_keyboard,
+    back_admin_keyboard,
+    user_admin_actions_keyboard,
+)
+from app.models.admin import Admin
 from app.models.access_event import MembershipAccessEvent
 from app.models.crm import UserNote, UserTag
 from app.models.enums import CRMStatus, LogAction, MembershipStatus, PaymentRequestStatus, Role, UserStatus
@@ -22,6 +28,7 @@ from app.models.support import SupportReplyMap, SupportThread
 from app.models.user import User
 from app.services.admins import add_admin, list_admins, remove_admin, require_role
 from app.services.crm import add_user_note, add_user_tag, set_crm_status
+from app.services.logs import log_event
 from app.services.messaging import MessagingService
 from app.services.users import get_or_create_user, get_user_by_telegram_id
 from app.states.admin import AdminUserStates
@@ -76,6 +83,57 @@ async def cb_add_admin(callback: CallbackQuery, state: FSMContext, session: Asyn
         "El usuario debe haber ejecutado /start antes."
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:admins:view:"))
+async def cb_admin_detail(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.OWNER)
+    admin = await session.scalar(
+        select(Admin)
+        .options(selectinload(Admin.user), selectinload(Admin.added_by))
+        .where(Admin.id == int(callback.data.rsplit(":", 1)[-1]))
+    )
+    if admin is None:
+        await callback.answer("Administrador no encontrado.", show_alert=True)
+        return
+    await callback.message.edit_text(
+        "<b>Administrador</b>\n\n"
+        f"Nombre: {h(admin.user.display_name)}\n"
+        f"Telegram ID: <code>{admin.telegram_id}</code>\n"
+        f"Rol: <b>{admin.role.value}</b>\n"
+        f"Estado: <b>{'Activo' if admin.is_active else 'Inactivo'}</b>\n\n"
+        "Selecciona un rol para actualizar sus permisos.",
+        reply_markup=admin_detail_keyboard(admin.id, admin.role),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:admins:role:"))
+async def cb_admin_change_role(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.OWNER)
+    _, _, _, admin_id_raw, role_raw = callback.data.split(":")
+    admin = await session.scalar(
+        select(Admin).options(selectinload(Admin.user)).where(Admin.id == int(admin_id_raw))
+    )
+    if admin is None:
+        await callback.answer("Administrador no encontrado.", show_alert=True)
+        return
+    if admin.telegram_id in settings.owner_ids:
+        await callback.answer("El OWNER configurado por entorno conserva su rol.", show_alert=True)
+        return
+    role = Role(role_raw)
+    actor = await get_or_create_user(session, callback.from_user)
+    admin.role = role
+    await log_event(
+        session,
+        LogAction.ADMIN_CREATED,
+        f"Rol de administrador actualizado: {admin.telegram_id} -> {role.value}",
+        actor_user_id=actor.id,
+        target_user_id=admin.user_id,
+        details={"admin_id": admin.id, "role": role.value},
+    )
+    await callback.message.edit_reply_markup(reply_markup=admin_detail_keyboard(admin.id, role))
+    await callback.answer("Rol actualizado.")
 
 
 @router.message(AdminUserStates.waiting_add_admin)

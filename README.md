@@ -75,7 +75,9 @@ requirements.txt
 - Motor de automatizaciones con reglas, jobs, dedupe y ejecucion desde scheduler.
 - Cupones, referrals, campaigns y funnel events listos para growth/retention.
 - Selector de idioma persistente con `/language`.
-- Validador de Telegram Mini App `initData` y botones para abrir Mini Apps cliente/admin cuando hay URL HTTPS configurada.
+- Mini Apps cliente/admin servidas por el mismo proceso, autenticadas con `initData` y conectadas a PostgreSQL.
+- Boton de menu persistente y catalogo de comandos configurados automaticamente por rol en cada arranque.
+- Panel `/settings` condensado por areas, pendientes navegables, cupones guiados y configuracion persistente.
 
 ## Variables de entorno
 
@@ -102,33 +104,38 @@ Variables avanzadas agregadas:
 
 ```env
 DEFAULT_LANGUAGE=es
-SUPPORTED_LANGUAGES=es,en,pt
+SUPPORTED_LANGUAGES=["es","en","pt"]
 DEFAULT_CURRENCY=USD
-CURRENCY_USD_RATES=USD=1,MXN=0.058,BOB=0.145,EUR=1.08,COP=0.00025,ARS=0.001
+CURRENCY_USD_RATES={"USD":"1","MXN":"0.05926","BOB":"0.145","EUR":"1.08","COP":"0.00025","ARS":"0.001"}
 RECEIPT_MAX_DOWNLOAD_MB=20
 AI_ENABLED=false
 OCR_ENABLED=false
 SMART_REPLIES_ENABLED=false
 TELEGRAM_STARS_ENABLED=true
-TELEGRAM_STARS_PER_USD=100
-TELEGRAM_STARS_DEFAULT_RATIO=100
+TELEGRAM_STARS_PER_USD=44.11764706
+TELEGRAM_STARS_DEFAULT_RATIO=44.11764706
 EXTERNAL_PAYMENTS_ENABLED=false
 EXTERNAL_PAYMENT_WEBHOOK_SECRET=
-MINI_APP_CLIENT_URL=
-MINI_APP_ADMIN_URL=
+MINI_APP_CLIENT_URL=https://tu-servicio.seenode.app/miniapp
+MINI_APP_ADMIN_URL=https://tu-servicio.seenode.app/admin
 TELEGRAM_WEBHOOK_SECRET_TOKEN=
+WEB_ENABLED=true
+WEB_HOST=0.0.0.0
+PORT=8000
+TELEGRAM_WEBAPP_MAX_AGE_SECONDS=86400
 ```
 
 `CURRENCY_USD_RATES` usa el valor en USD de 1 unidad de cada moneda. Ejemplo: si un plan cuesta
-`200 MXN` y `MXN=0.058`, el bot calcula `11.60 USD`; si `TELEGRAM_STARS_PER_USD=100`,
-la factura sera de `1160 XTR`, no de `200 XTR` ni de `200 USD`.
+`220 MXN` y `MXN=0.05926`, el bot calcula `13.04 USD`; con la referencia
+`1500 Stars / 34 USD = 44.11764706 Stars/USD`, la factura sera de `575 XTR`,
+no de `220 XTR`, `1304 XTR` ni `220 USD`.
 
 Para monedas distintas de USD, si no existe tasa configurada el bot no crea la factura de Stars.
 Esto evita cobrar mal por interpretar pesos, bolivianos u otra moneda como dolares.
 
-Si `MINI_APP_CLIENT_URL` o `MINI_APP_ADMIN_URL` quedan vacias, Telegram mostrara el boton
-correspondiente pero el bot respondera con una alerta indicando que falta configurar la URL HTTPS.
-Para abrir una Mini App real, Seenode debe tener esas variables apuntando a un frontend HTTPS valido.
+Si una URL Mini App queda vacia, el bot oculta ese boton para no presentar una accion rota.
+Las tasas, Stars/USD, marca, soporte, FAQ e idioma predeterminado tambien se pueden editar desde
+`/settings -> Sistema -> Configuracion`; se guardan en PostgreSQL y sobreviven al redeploy.
 
 ## Instalacion local
 
@@ -178,7 +185,7 @@ python main.py
 
 1. Crea un proyecto en Railway.
 2. Agrega un servicio PostgreSQL.
-3. Agrega este repositorio como servicio worker.
+3. Agrega este repositorio como servicio web de larga duracion.
 4. Configura variables:
 
 ```env
@@ -189,6 +196,9 @@ APP_ENV=production
 PUBLIC_BRAND_NAME=Tu Marca Premium
 SUPPORT_URL=https://t.me/tu_soporte
 SCHEDULER_ENABLED=true
+MINI_APP_CLIENT_URL=https://tu-dominio.up.railway.app/miniapp
+MINI_APP_ADMIN_URL=https://tu-dominio.up.railway.app/admin
+WEB_ENABLED=true
 ```
 
 5. Railway ejecutara:
@@ -197,11 +207,12 @@ SCHEDULER_ENABLED=true
 alembic upgrade head && python main.py
 ```
 
-El proyecto usa polling, por lo que no requiere dominio publico ni webhook.
+El bot usa polling, pero las Mini Apps necesitan el dominio HTTPS publico del mismo servicio.
 
 ## Seenode
 
-Configura el servicio como worker/bot de larga duracion:
+Configura el servicio como aplicacion web de larga duracion. El mismo proceso atiende el puerto
+HTTP de Seenode y mantiene el polling del bot:
 
 ```text
 pip install -r requirements.txt
@@ -217,7 +228,15 @@ OWNER_ID=8795701121
 APP_ENV=production
 SCHEDULER_ENABLED=true
 LOG_TO_FILE=true
+MINI_APP_CLIENT_URL=https://tu-servicio.seenode.app/miniapp
+MINI_APP_ADMIN_URL=https://tu-servicio.seenode.app/admin
+WEB_ENABLED=true
+TELEGRAM_STARS_PER_USD=44.11764706
 ```
+
+Seenode inyecta `PORT`; no fijes otro puerto en produccion. Comprueba el despliegue en `/health`.
+Cuando las URLs estan configuradas, el arranque registra automaticamente el boton permanente de
+Mini App para clientes y el boton de panel para cada OWNER/ADMIN conocido.
 
 No ejecutes otra instancia local con el mismo `BOT_TOKEN` mientras Seenode hace polling.
 
@@ -316,7 +335,7 @@ precio_plan_en_moneda_original * tasa_USD_de_la_moneda * TELEGRAM_STARS_PER_USD 
 Ejemplo:
 
 ```text
-200 MXN * 0.058 USD * 100 Stars/USD = 1160 XTR
+220 MXN * 0.05926 USD/MXN * 44.11764706 Stars/USD = 575 XTR
 ```
 
 Si el plan usa una moneda distinta de USD y no hay tasa configurada, el bot rechaza la factura

@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.keyboards.admin import quick_replies_keyboard
-from app.models.enums import Role
+from app.models.enums import LogAction, Role
+from app.models.quick_reply import QuickReply
 from app.services.admins import require_role
+from app.services.logs import log_event
 from app.services.quick_replies import create_quick_reply, list_quick_replies
 from app.services.users import get_or_create_user
 from app.states.admin import QuickReplyStates
@@ -78,9 +80,34 @@ async def receive_quick_reply_payload(
     await message.answer("Respuesta rapida creada.", reply_markup=quick_replies_keyboard(replies))
 
 
+@router.callback_query(F.data.startswith("qr:toggle:"))
+async def cb_toggle_quick_reply(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    reply = await session.get(QuickReply, int(callback.data.rsplit(":", 1)[-1]))
+    if reply is None:
+        await callback.answer("Respuesta no encontrada.", show_alert=True)
+        return
+    reply.is_active = not reply.is_active
+    actor = await get_or_create_user(session, callback.from_user)
+    await log_event(
+        session,
+        LogAction.QUICK_REPLY_UPDATED,
+        f"Respuesta rapida {reply.command} {'activada' if reply.is_active else 'desactivada'}",
+        actor_user_id=actor.id,
+        details={"quick_reply_id": reply.id, "is_active": reply.is_active},
+    )
+    replies = await list_quick_replies(session, only_active=False)
+    await callback.message.edit_reply_markup(reply_markup=quick_replies_keyboard(replies))
+    await callback.answer("Estado actualizado.")
+
+
 def _quick_reply_text() -> str:
     return (
-        "<b>Quick replies</b>\n\n"
+        "<b>Respuestas rapidas</b>\n\n"
         "Para responder desde soporte, responde al mensaje puente del usuario escribiendo "
         "el comando de una respuesta rapida activa."
     )

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-from collections import defaultdict
-
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
@@ -12,10 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import Settings
 from app.models.enums import Role
 from app.services.admins import require_permission
+from app.services.locks import payment_lock
 from app.services.notifications import send_access_links, send_payment_rejected
 from app.services.payment_service import PaymentService
 from app.services.payments import (
     get_payment_request,
+    get_payment_request_for_update,
     mark_payment_banned,
 )
 from app.services.users import get_or_create_user
@@ -23,7 +22,6 @@ from app.states.admin import AdminPaymentReviewStates
 from app.utils.text import h
 
 router = Router(name="admin_payments")
-PAYMENT_LOCKS: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 @router.callback_query(F.data.startswith("adm:pay:ok:"))
@@ -35,8 +33,8 @@ async def cb_approve_payment(
     await require_permission(session, callback.from_user.id, settings, "review_payments")
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
-    async with PAYMENT_LOCKS[request_id]:
-        request = await get_payment_request(session, request_id)
+    async with payment_lock(request_id):
+        request = await get_payment_request_for_update(session, request_id)
         if request is None:
             await callback.answer("Solicitud no encontrada.", show_alert=True)
             return
@@ -100,8 +98,8 @@ async def receive_rejection_reason(
     admin_user = await get_or_create_user(session, message.from_user)
     data = await state.get_data()
     request_id = int(data["payment_request_id"])
-    async with PAYMENT_LOCKS[request_id]:
-        request = await get_payment_request(session, request_id)
+    async with payment_lock(request_id):
+        request = await get_payment_request_for_update(session, request_id)
         if request is None:
             await message.answer("Solicitud no encontrada.")
             await state.clear()
@@ -137,8 +135,8 @@ async def cb_ban_from_payment(
     await require_permission(session, callback.from_user.id, settings, "review_payments")
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
-    async with PAYMENT_LOCKS[request_id]:
-        request = await get_payment_request(session, request_id)
+    async with payment_lock(request_id):
+        request = await get_payment_request_for_update(session, request_id)
         if request is None:
             await callback.answer("Solicitud no encontrada.", show_alert=True)
             return

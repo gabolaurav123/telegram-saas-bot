@@ -134,6 +134,37 @@ async def cb_create_chat(callback: CallbackQuery, state: FSMContext, session: As
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("adm:chats:toggle:"))
+async def cb_toggle_managed_chat(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    _, _, _, kind, db_id_raw = callback.data.split(":")
+    model = Channel if kind == "channel" else TelegramGroup if kind == "group" else None
+    if model is None:
+        await callback.answer("Tipo de chat invalido.", show_alert=True)
+        return
+    item = await session.get(model, int(db_id_raw))
+    if item is None:
+        await callback.answer("Chat no encontrado.", show_alert=True)
+        return
+    item.is_active = not item.is_active
+    actor = await get_or_create_user(session, callback.from_user)
+    await log_event(
+        session,
+        LogAction.CHAT_UPDATED,
+        f"Chat {item.title} {'activado' if item.is_active else 'desactivado'}",
+        actor_user_id=actor.id,
+        details={"kind": kind, "db_id": item.id, "telegram_chat_id": item.telegram_chat_id},
+    )
+    channels = await list_channels(session)
+    groups = await list_groups(session)
+    await callback.message.edit_reply_markup(reply_markup=chats_admin_keyboard(channels, groups))
+    await callback.answer("Estado actualizado.")
+
+
 @router.message(AdminChatStates.waiting_manual_chat)
 async def receive_manual_chat(message: Message, state: FSMContext, session: AsyncSession, settings: Settings) -> None:
     await require_role(session, message.from_user.id, settings, Role.ADMIN)

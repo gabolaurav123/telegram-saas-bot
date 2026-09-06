@@ -22,7 +22,7 @@ router = Router(name="admin_broadcasts")
 async def cmd_broadcast(message: Message, session: AsyncSession, settings: Settings) -> None:
     await require_permission(session, message.from_user.id, settings, "broadcast")
     await message.answer(
-        "<b>Broadcast</b>\n\nA quien deseas enviar?",
+        "<b>Difusion</b>\n\nA quien deseas enviar?",
         reply_markup=broadcast_targets_keyboard(),
     )
 
@@ -31,7 +31,7 @@ async def cmd_broadcast(message: Message, session: AsyncSession, settings: Setti
 async def cb_broadcast(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     await require_permission(session, callback.from_user.id, settings, "broadcast")
     await callback.message.edit_text(
-        "<b>Broadcast</b>\n\nA quien deseas enviar?",
+        "<b>Difusion</b>\n\nA quien deseas enviar?",
         reply_markup=broadcast_targets_keyboard(),
     )
     await callback.answer()
@@ -42,8 +42,8 @@ async def cb_broadcast_plan_target(callback: CallbackQuery, session: AsyncSessio
     await require_permission(session, callback.from_user.id, settings, "broadcast")
     plans = await list_plans(session, only_active=True)
     await callback.message.edit_text(
-        "<b>Broadcast por plan</b>\n\nSelecciona el plan:",
-        reply_markup=plan_select_keyboard(plans, "bc:plan"),
+        "<b>Difusion por plan</b>\n\nSelecciona el plan:",
+        reply_markup=plan_select_keyboard(plans, "bc:plan", back_callback="adm:section:operations"),
     )
     await callback.answer()
 
@@ -90,7 +90,7 @@ async def receive_broadcast_content(
     enqueue_broadcast(message.bot, settings, job.id)
     await state.clear()
     await message.answer(
-        "<b>Broadcast encolado</b>\n\n"
+        "<b>Difusion encolada</b>\n\n"
         f"ID: <code>{job.id}</code>\n"
         f"Destinatarios: <b>{job.total}</b>"
     )

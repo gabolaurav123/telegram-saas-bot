@@ -6,7 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
-from app.keyboards.user import language_keyboard, main_menu_keyboard
+from app.keyboards.user import language_keyboard, main_menu_keyboard, support_keyboard
 from app.models.enums import LogAction
 from app.services.crm import apply_start_attribution
 from app.services.logs import log_event
@@ -194,7 +194,7 @@ async def cmd_support(message: Message, session: AsyncSession, settings: Setting
     user = await get_or_create_user(session, message.from_user)
     await message.answer(
         _support_text(settings, user.preferred_language),
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+        reply_markup=support_keyboard(user.preferred_language),
     )
 
 
@@ -203,7 +203,7 @@ async def cb_support_with_session(callback: CallbackQuery, session: AsyncSession
     user = await get_or_create_user(session, callback.from_user)
     await callback.message.edit_text(
         _support_text(settings, user.preferred_language),
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+        reply_markup=support_keyboard(user.preferred_language),
     )
     await callback.answer()
 
@@ -245,4 +245,4 @@ async def _membership_status_text(
 def _support_text(settings: Settings, language: str) -> str:
     if settings.support_url:
         return t(language, "support.url", url=h(settings.support_url))
-    return t(language, "support.unset")
+    return t(language, "support.prompt")
