@@ -27,6 +27,13 @@ class User(Base, TimestampMixin):
     first_name: Mapped[str | None] = mapped_column(String(255))
     last_name: Mapped[str | None] = mapped_column(String(255))
     language_code: Mapped[str | None] = mapped_column(String(16))
+    preferred_language: Mapped[str] = mapped_column(
+        String(8),
+        default="es",
+        server_default="es",
+        nullable=False,
+        index=True,
+    )
     is_bot: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     status: Mapped[UserStatus] = mapped_column(
         enum_type(UserStatus, "user_status"),

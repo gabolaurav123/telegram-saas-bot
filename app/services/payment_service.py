@@ -21,6 +21,7 @@ from app.models.user import User
 from app.services.antifraud import analyze_and_store_receipt
 from app.services.channels import create_invite_links_for_plan
 from app.services.crm import record_funnel_event, set_crm_status
+from app.services.currency import plan_price_to_stars
 from app.services.logs import log_event
 from app.services.payments import create_payment_request, mark_payment_approved, mark_payment_rejected
 from app.services.subscription_service import SubscriptionService
@@ -169,7 +170,8 @@ class PaymentService:
             raise ValueError("Telegram Stars esta desactivado.")
         if payment_method.provider != PaymentProvider.TELEGRAM_STARS:
             raise ValueError("El metodo seleccionado no es Telegram Stars.")
-        amount_stars = _stars_amount(plan, settings)
+        conversion = plan_price_to_stars(plan, settings)
+        amount_stars = conversion.stars_amount
         payload = f"stars:{plan.id}:{user.id}:{secrets.token_urlsafe(16)}"[:128]
         request = PaymentRequest(
             user_id=user.id,
@@ -182,6 +184,13 @@ class PaymentService:
             metadata_json={
                 "provider": PaymentProvider.TELEGRAM_STARS.value,
                 "subscription_period": subscription_period,
+                "source_amount": str(conversion.source_amount),
+                "source_currency": conversion.source_currency,
+                "usd_amount": str(conversion.usd_amount),
+                "rate_to_usd": str(conversion.rate_to_usd),
+                "rate_source": conversion.rate_source,
+                "stars_per_usd": str(conversion.stars_per_usd),
+                "amount_stars": amount_stars,
                 **(metadata_json or {}),
             },
         )
@@ -358,10 +367,3 @@ class PaymentService:
                 details={"telegram_payment_charge_id": telegram_payment_charge_id},
             )
         return request
-
-
-def _stars_amount(plan: Plan, settings: Settings) -> int:
-    configured = (plan.metadata_json or {}).get("stars_amount")
-    if configured:
-        return max(1, int(configured))
-    return max(1, int(round(float(plan.price) * settings.telegram_stars_default_ratio)))

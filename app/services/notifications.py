@@ -189,7 +189,7 @@ async def send_membership_reminder(
         f"Tu plan <b>{h(membership.plan.name)}</b> vence en {days_before} dia(s).\n"
         f"Fecha de vencimiento: {human_datetime(membership.expires_at, settings.app_timezone)}\n\n"
         "La renovacion requiere un nuevo comprobante y aprobacion manual del admin.",
-        reply_markup=renewal_keyboard(membership.id),
+        reply_markup=renewal_keyboard(membership.id, membership.user.preferred_language),
     )
 
 
@@ -205,5 +205,5 @@ async def send_membership_expired(
         f"Tu plan <b>{h(membership.plan.name)}</b> vencio el "
         f"{human_datetime(membership.expires_at, settings.app_timezone)}.\n\n"
         "El acceso fue revocado automaticamente. Puedes solicitar renovacion enviando un nuevo comprobante.",
-        reply_markup=renewal_keyboard(membership.id),
+        reply_markup=renewal_keyboard(membership.id, membership.user.preferred_language),
     )

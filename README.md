@@ -41,7 +41,7 @@ requirements.txt
 ## Funciones principales
 
 - Registro automatico en `/start`.
-- Menu inline movil: planes, compra, estado, soporte, FAQ y renovacion.
+- Menu inline movil: planes, compra, estado, soporte, FAQ, idioma, Mini App y renovacion.
 - Flujo de compra por plan y metodo de pago.
 - Mensajes personalizados por plan y metodo con variables:
   `{username}`, `{plan_name}`, `{price}`, `{duration}`, `{payment_method}`, `{instructions}`.
@@ -54,10 +54,11 @@ requirements.txt
 - Rechazo con motivo opcional y notificacion al usuario.
 - CRM interno: `chat_id`, source/campaign/referral, estado comercial, tags, notas, VIP, historial y estado de entrega.
 - Antifraude de comprobantes: hash SHA-256, hash perceptual para imagenes y alertas de duplicados/similitud.
-- Telegram Stars como metodo de pago nativo opcional; el flujo manual sigue disponible.
+- Telegram Stars como metodo de pago nativo opcional; convierte primero el precio del plan a USD y despues a XTR.
 - Arquitectura preparada para pagos externos alojados mediante sesiones y webhooks idempotentes.
 - Roles estrictos: OWNER, SUPERVISOR, ADMIN, PAYMENTS, SUPPORT, SALES, MODERATOR, READ_ONLY.
 - Gestion de planes, metodos de pago, administradores, canales y grupos.
+- Metodos de pago configurables por plan desde `/settings -> Planes -> Metodos del plan`.
 - Registro automatico de canales/grupos cuando el bot es agregado como administrador.
 - Scheduler para recordatorios a 3 dias, 1 dia y expiracion.
 - Recordatorios con boton "Renovar ahora"; la renovacion siempre requiere comprobante y aprobacion manual.
@@ -73,7 +74,8 @@ requirements.txt
 - Quick replies configurables para soporte.
 - Motor de automatizaciones con reglas, jobs, dedupe y ejecucion desde scheduler.
 - Cupones, referrals, campaigns y funnel events listos para growth/retention.
-- Validador de Telegram Mini App `initData` para futuras Mini Apps cliente/admin.
+- Selector de idioma persistente con `/language`.
+- Validador de Telegram Mini App `initData` y botones para abrir Mini Apps cliente/admin cuando hay URL HTTPS configurada.
 
 ## Variables de entorno
 
@@ -99,18 +101,30 @@ Las URLs de Neon/Railway con `sslmode=require` son aceptadas; el sistema normali
 Variables avanzadas agregadas:
 
 ```env
+DEFAULT_LANGUAGE=es
+SUPPORTED_LANGUAGES=es,en,pt
+DEFAULT_CURRENCY=USD
+CURRENCY_USD_RATES=USD=1,MXN=0.058,BOB=0.145,EUR=1.08,COP=0.00025,ARS=0.001
 RECEIPT_MAX_DOWNLOAD_MB=20
 AI_ENABLED=false
 OCR_ENABLED=false
 SMART_REPLIES_ENABLED=false
 TELEGRAM_STARS_ENABLED=true
-TELEGRAM_STARS_DEFAULT_RATIO=1
+TELEGRAM_STARS_PER_USD=100
+TELEGRAM_STARS_DEFAULT_RATIO=100
 EXTERNAL_PAYMENTS_ENABLED=false
 EXTERNAL_PAYMENT_WEBHOOK_SECRET=
 MINI_APP_CLIENT_URL=
 MINI_APP_ADMIN_URL=
 TELEGRAM_WEBHOOK_SECRET_TOKEN=
 ```
+
+`CURRENCY_USD_RATES` usa el valor en USD de 1 unidad de cada moneda. Ejemplo: si un plan cuesta
+`200 MXN` y `MXN=0.058`, el bot calcula `11.60 USD`; si `TELEGRAM_STARS_PER_USD=100`,
+la factura sera de `1160 XTR`, no de `200 XTR` ni de `200 USD`.
+
+Para monedas distintas de USD, si no existe tasa configurada el bot no crea la factura de Stars.
+Esto evita cobrar mal por interpretar pesos, bolivianos u otra moneda como dolares.
 
 Si `MINI_APP_CLIENT_URL` o `MINI_APP_ADMIN_URL` quedan vacias, Telegram mostrara el boton
 correspondiente pero el bot respondera con una alerta indicando que falta configurar la URL HTTPS.
@@ -255,6 +269,7 @@ Usuario:
 - `/id`
 - `/profile`
 - `/plans`
+- `/language`
 - `/support`
 - `/paysupport`
 
@@ -280,6 +295,7 @@ Administracion:
 - `0003_broadcast_bigint_chat_id`: soporte de chat IDs grandes en broadcast.
 - `0004_access_events`: tracking real de joins, leaves, kicks y reemision de links.
 - `0005_crm_growth`: CRM, inbox persistente, quick replies, antifraude, Telegram Stars, pagos externos, cupones, referrals, campaigns y automations.
+- `0007_user_language_currency`: idioma preferido por usuario y soporte de configuracion USD/Stars.
 
 ## Telegram Stars
 
@@ -287,7 +303,24 @@ Para activar Stars:
 
 1. Mantén `TELEGRAM_STARS_ENABLED=true`.
 2. Activa el metodo `Telegram Stars` en los planes correspondientes.
-3. Opcionalmente define `stars_amount` dentro de `plans.metadata_json` para controlar el precio exacto en Stars.
+3. Define `TELEGRAM_STARS_PER_USD` segun tu estrategia de precios.
+4. Define `CURRENCY_USD_RATES` para cada moneda usada por tus planes.
+5. Opcionalmente define `stars_amount` dentro de `plans.metadata_json` para controlar el precio exacto en Stars.
+
+Calculo:
+
+```text
+precio_plan_en_moneda_original * tasa_USD_de_la_moneda * TELEGRAM_STARS_PER_USD = XTR
+```
+
+Ejemplo:
+
+```text
+200 MXN * 0.058 USD * 100 Stars/USD = 1160 XTR
+```
+
+Si el plan usa una moneda distinta de USD y no hay tasa configurada, el bot rechaza la factura
+en vez de cobrar mal.
 
 El invoice usa `currency=XTR` y `provider_token` vacio, como requiere Telegram para Stars. Documentacion: [Telegram Bot API Payments](https://core.telegram.org/bots/api#payments).
 

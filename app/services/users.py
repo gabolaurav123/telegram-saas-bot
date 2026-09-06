@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import LogAction, UserStatus
 from app.models.user import User
 from app.services.logs import log_event
+from app.utils.i18n import normalize_language
 from app.utils.time import utc_now
 
 
@@ -33,6 +34,7 @@ async def get_or_create_user_with_flag(
             first_name=telegram_user.first_name,
             last_name=telegram_user.last_name,
             language_code=telegram_user.language_code,
+            preferred_language=normalize_language(telegram_user.language_code),
             is_bot=telegram_user.is_bot,
             status=UserStatus.ACTIVE,
             last_seen_at=now,
@@ -65,3 +67,21 @@ async def get_or_create_user_with_flag(
 async def ban_user(session: AsyncSession, user: User) -> None:
     user.status = UserStatus.BANNED
     user.banned_at = utc_now()
+
+
+async def set_preferred_language(
+    session: AsyncSession,
+    *,
+    user: User,
+    language: str,
+    supported_languages: list[str],
+) -> User:
+    user.preferred_language = normalize_language(language, supported_languages)
+    await log_event(
+        session,
+        LogAction.USER_PROFILE_UPDATED,
+        f"Idioma actualizado para {user.telegram_id}: {user.preferred_language}",
+        target_user_id=user.id,
+        details={"preferred_language": user.preferred_language},
+    )
+    return user

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -38,11 +39,17 @@ class Settings(BaseSettings):
     support_url: str | None = Field(default=None, alias="SUPPORT_URL")
     faq_url: str | None = Field(default=None, alias="FAQ_URL")
     public_brand_name: str = Field(default="Premium Access", alias="PUBLIC_BRAND_NAME")
+    default_language: str = Field(default="es", alias="DEFAULT_LANGUAGE")
+    supported_languages: list[str] = Field(default_factory=lambda: ["es", "en"], alias="SUPPORTED_LANGUAGES")
 
     admin_notification_chat_id: int | None = Field(
         default=None, alias="ADMIN_NOTIFICATION_CHAT_ID"
     )
     default_currency: str = Field(default="USD", alias="DEFAULT_CURRENCY")
+    currency_usd_rates: dict[str, Decimal] = Field(
+        default_factory=lambda: {"USD": Decimal("1")},
+        alias="CURRENCY_USD_RATES",
+    )
     invite_link_ttl_minutes: int = Field(default=30, alias="INVITE_LINK_TTL_MINUTES")
     approved_invite_link_ttl_hours: int = Field(default=10, alias="APPROVED_INVITE_LINK_TTL_HOURS")
 
@@ -68,7 +75,8 @@ class Settings(BaseSettings):
     ocr_enabled: bool = Field(default=False, alias="OCR_ENABLED")
     smart_replies_enabled: bool = Field(default=False, alias="SMART_REPLIES_ENABLED")
     telegram_stars_enabled: bool = Field(default=True, alias="TELEGRAM_STARS_ENABLED")
-    telegram_stars_default_ratio: int = Field(default=1, alias="TELEGRAM_STARS_DEFAULT_RATIO")
+    telegram_stars_default_ratio: Decimal = Field(default=Decimal("100"), alias="TELEGRAM_STARS_DEFAULT_RATIO")
+    telegram_stars_per_usd: Decimal | None = Field(default=None, alias="TELEGRAM_STARS_PER_USD")
     external_payments_enabled: bool = Field(default=False, alias="EXTERNAL_PAYMENTS_ENABLED")
     external_payment_webhook_secret: str | None = Field(default=None, alias="EXTERNAL_PAYMENT_WEBHOOK_SECRET")
     mini_app_client_url: str | None = Field(default=None, alias="MINI_APP_CLIENT_URL")
@@ -96,6 +104,75 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_currency(cls, value: str) -> str:
         return value.upper().strip()
+
+    @field_validator("default_language")
+    @classmethod
+    def normalize_default_language(cls, value: str) -> str:
+        normalized = value.lower().strip()
+        return normalized or "es"
+
+    @field_validator("supported_languages", mode="before")
+    @classmethod
+    def parse_supported_languages(cls, value: Any) -> list[str]:
+        if value in (None, ""):
+            return ["es", "en"]
+        if isinstance(value, str):
+            return [item.lower().strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).lower().strip() for item in value if str(item).strip()]
+        raise TypeError("SUPPORTED_LANGUAGES must be a comma separated list")
+
+    @field_validator("currency_usd_rates", mode="before")
+    @classmethod
+    def parse_currency_usd_rates(cls, value: Any) -> dict[str, Decimal]:
+        if value in (None, ""):
+            return {"USD": Decimal("1")}
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return {"USD": Decimal("1")}
+            if stripped.startswith("{"):
+                import json
+
+                value = json.loads(stripped)
+            else:
+                pairs: dict[str, Decimal] = {}
+                for item in stripped.split(","):
+                    if not item.strip():
+                        continue
+                    if "=" not in item:
+                        raise ValueError("CURRENCY_USD_RATES must use JSON or CODE=RATE pairs")
+                    code, rate = item.split("=", 1)
+                    pairs[code.upper().strip()] = Decimal(rate.strip())
+                pairs.setdefault("USD", Decimal("1"))
+                return pairs
+        if isinstance(value, dict):
+            rates = {
+                str(code).upper().strip(): Decimal(str(rate))
+                for code, rate in value.items()
+                if str(code).strip()
+            }
+            rates.setdefault("USD", Decimal("1"))
+            return rates
+        raise TypeError("CURRENCY_USD_RATES must be JSON or CODE=RATE pairs")
+
+    @field_validator("telegram_stars_default_ratio", "telegram_stars_per_usd", mode="before")
+    @classmethod
+    def parse_positive_decimal(cls, value: Any) -> Decimal | None:
+        if value in (None, ""):
+            return None
+        parsed = Decimal(str(value))
+        if parsed <= 0:
+            raise ValueError("Stars conversion values must be greater than zero")
+        return parsed
+
+    @property
+    def effective_stars_per_usd(self) -> Decimal:
+        if self.telegram_stars_per_usd:
+            return self.telegram_stars_per_usd
+        if not self.telegram_stars_default_ratio or self.telegram_stars_default_ratio <= Decimal("1"):
+            return Decimal("100")
+        return self.telegram_stars_default_ratio
 
     @property
     def sqlalchemy_database_url(self) -> str:

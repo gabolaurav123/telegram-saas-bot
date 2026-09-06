@@ -232,6 +232,10 @@ async def cb_admin_config(callback: CallbackQuery, session: AsyncSession, settin
         f"Entorno: <code>{h(settings.app_env)}</code>\n"
         f"Zona horaria: <code>{h(settings.app_timezone)}</code>\n"
         f"Marca publica: <code>{h(settings.public_brand_name)}</code>\n"
+        f"Idioma default: <code>{h(settings.default_language)}</code>\n"
+        f"Idiomas: <code>{h(','.join(settings.supported_languages))}</code>\n"
+        f"Stars/USD: <code>{settings.effective_stars_per_usd}</code>\n"
+        f"Tasas USD: <code>{h(','.join(sorted(settings.currency_usd_rates)))}</code>\n"
         f"Scheduler: <code>{settings.scheduler_enabled}</code>\n"
         f"Backups automaticos: <code>{settings.backup_enabled}</code>\n\n"
         "Las configuraciones globales se controlan desde variables de entorno en Railway.",

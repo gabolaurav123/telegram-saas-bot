@@ -173,6 +173,61 @@ async def set_plan_payment_message(
     return message
 
 
+async def set_plan_payment_method_enabled(
+    session: AsyncSession,
+    *,
+    plan_id: int,
+    payment_method_id: int,
+    enabled: bool,
+    actor: User | None = None,
+) -> Plan:
+    plan = await get_plan(session, plan_id)
+    if plan is None:
+        raise ValueError("Plan no encontrado.")
+    method = await session.get(PaymentMethod, payment_method_id)
+    if method is None:
+        raise ValueError("Metodo de pago no encontrado.")
+
+    already_enabled = any(item.id == method.id for item in plan.payment_methods)
+    if enabled and not already_enabled:
+        plan.payment_methods.append(method)
+    elif not enabled and already_enabled:
+        plan.payment_methods = [item for item in plan.payment_methods if item.id != method.id]
+
+    await log_event(
+        session,
+        LogAction.PLAN_UPDATED,
+        f"Metodo de pago {'activado' if enabled else 'desactivado'} para {plan.name}: {method.name}",
+        actor_user_id=actor.id if actor else None,
+        details={
+            "plan_id": plan_id,
+            "payment_method_id": payment_method_id,
+            "enabled": enabled,
+        },
+    )
+    return plan
+
+
+async def toggle_plan_payment_method(
+    session: AsyncSession,
+    *,
+    plan_id: int,
+    payment_method_id: int,
+    actor: User | None = None,
+) -> Plan:
+    plan = await get_plan(session, plan_id)
+    if plan is None:
+        raise ValueError("Plan no encontrado.")
+    enabled = not any(item.id == payment_method_id for item in plan.payment_methods)
+    return await set_plan_payment_method_enabled(
+        session,
+        plan_id=plan_id,
+        payment_method_id=payment_method_id,
+        enabled=enabled,
+        actor=actor,
+    )
+
+
 async def link_channel_to_plan(
     session: AsyncSession,
     *,
@@ -221,4 +276,3 @@ async def link_group_to_plan(
 
 async def count_active_plans(session: AsyncSession) -> int:
     return int(await session.scalar(select(func.count(Plan.id)).where(Plan.is_active.is_(True))) or 0)
-

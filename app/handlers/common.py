@@ -6,13 +6,14 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
-from app.keyboards.user import main_menu_keyboard
+from app.keyboards.user import language_keyboard, main_menu_keyboard
 from app.models.enums import LogAction
 from app.services.crm import apply_start_attribution
 from app.services.logs import log_event
 from app.services.memberships import get_active_memberships
 from app.services.notifications import send_admin_log
-from app.services.users import get_or_create_user, get_or_create_user_with_flag
+from app.services.users import get_or_create_user, get_or_create_user_with_flag, set_preferred_language
+from app.utils.i18n import t
 from app.utils.text import h
 from app.utils.time import human_datetime, remaining_days
 
@@ -64,63 +65,105 @@ async def cmd_start(
         )
     text = (
         f"<b>{h(settings.public_brand_name)}</b>\n\n"
-        f"Hola {h(user.display_name)}. Desde aqui puedes comprar, renovar y revisar "
-        "tu acceso premium de forma automatica.\n\n"
-        "Selecciona una opcion:"
+        f"{t(user.preferred_language, 'start.body', name=h(user.display_name))}\n\n"
+        f"{t(user.preferred_language, 'start.choose')}"
     )
-    await message.answer(text, reply_markup=main_menu_keyboard(settings.mini_app_client_url))
+    await message.answer(
+        text,
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+    )
 
 
 @router.callback_query(F.data == "main:menu")
-async def cb_main_menu(callback: CallbackQuery, settings: Settings) -> None:
+async def cb_main_menu(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     await callback.message.edit_text(
-        f"<b>{h(settings.public_brand_name)}</b>\n\nSelecciona una opcion:",
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        f"<b>{h(settings.public_brand_name)}</b>\n\n{t(user.preferred_language, 'menu.choose')}",
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "main:miniapp")
-async def cb_main_miniapp(callback: CallbackQuery, settings: Settings) -> None:
+async def cb_main_miniapp(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     if settings.mini_app_client_url:
         await callback.answer("Abre el boton Mini App del menu.", show_alert=True)
         return
     await callback.answer(
-        "Mini App cliente no configurada. Define MINI_APP_CLIENT_URL en Seenode con una URL HTTPS.",
+        t(user.preferred_language, "miniapp.missing"),
         show_alert=True,
     )
 
 
 @router.message(Command("help"))
-async def cmd_help(message: Message) -> None:
+async def cmd_help(message: Message, session: AsyncSession) -> None:
+    user = await get_or_create_user(session, message.from_user)
     await message.answer(
-        "<b>Ayuda</b>\n\n"
-        "<b>Comandos</b>\n"
+        f"{t(user.preferred_language, 'help.title')}\n\n"
+        f"{t(user.preferred_language, 'help.commands')}\n"
         "/start - Abrir menu principal\n"
         "/plans - Ver planes disponibles\n"
         "/profile - Estado de tu membresia\n"
         "/id - Ver tu Telegram ID\n"
+        "/language - Cambiar idioma\n"
         "/support - Contactar soporte\n"
         "/paysupport - Ayuda con pagos\n"
         "/settings - Panel administrativo\n\n"
-        "<b>Como comprar</b>\n"
-        "1. Entra a /plans.\n"
-        "2. Elige un plan y un metodo de pago.\n"
-        "3. Sigue las instrucciones y envia tu comprobante.\n"
-        "4. Un administrador aprobara o rechazara la solicitud.\n\n"
-        "Tambien puedes pagar con Telegram Stars si el plan tiene ese metodo activo.\n\n"
-        "<b>Renovacion</b>\n"
-        "Puedes renovar desde /plans antes o despues del vencimiento.\n\n"
-        "<b>Reglas</b>\n"
-        "No compartas enlaces de acceso. Los links son temporales y de un solo uso."
+        f"{t(user.preferred_language, 'help.buy_title')}\n"
+        f"{t(user.preferred_language, 'help.body')}\n\n"
+        f"{t(user.preferred_language, 'help.stars')}\n\n"
+        f"{t(user.preferred_language, 'help.renewal_title')}\n"
+        f"{t(user.preferred_language, 'help.renewal')}\n\n"
+        f"{t(user.preferred_language, 'help.rules_title')}\n"
+        f"{t(user.preferred_language, 'help.rules')}"
     )
+
+
+@router.message(Command("language"))
+async def cmd_language(message: Message, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, message.from_user)
+    await message.answer(
+        t(user.preferred_language, "language.title"),
+        reply_markup=language_keyboard(user.preferred_language, settings.supported_languages),
+    )
+
+
+@router.callback_query(F.data == "lang:select")
+async def cb_language_select(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
+    await callback.message.edit_text(
+        t(user.preferred_language, "language.title"),
+        reply_markup=language_keyboard(user.preferred_language, settings.supported_languages),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("lang:set:"))
+async def cb_language_set(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
+    selected = callback.data.split(":")[-1].lower().strip().split("-")[0]
+    if selected not in settings.supported_languages:
+        await callback.answer(t(user.preferred_language, "language.invalid"), show_alert=True)
+        return
+    user = await set_preferred_language(
+        session,
+        user=user,
+        language=selected,
+        supported_languages=settings.supported_languages,
+    )
+    await callback.message.edit_text(
+        f"<b>{h(settings.public_brand_name)}</b>\n\n{t(user.preferred_language, 'menu.choose')}",
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+    )
+    await callback.answer(t(user.preferred_language, "language.updated"))
 
 
 @router.message(Command("id"))
 async def cmd_id(message: Message, session: AsyncSession, settings: Settings) -> None:
     user = await get_or_create_user(session, message.from_user)
     await message.answer(
-        "<b>Tu informacion</b>\n\n"
+        f"{t(user.preferred_language, 'id.title')}\n\n"
         f"Telegram ID: <code>{user.telegram_id}</code>\n"
         f"Username: {h('@' + user.username if user.username else '-')}\n"
         f"Registro: {human_datetime(user.registered_at, settings.app_timezone)}"
@@ -131,8 +174,8 @@ async def cmd_id(message: Message, session: AsyncSession, settings: Settings) ->
 async def cmd_profile(message: Message, session: AsyncSession, settings: Settings) -> None:
     user = await get_or_create_user(session, message.from_user)
     await message.answer(
-        await _membership_status_text(session, user.id, settings),
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        await _membership_status_text(session, user.id, settings, user.preferred_language),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
 
 
@@ -140,42 +183,40 @@ async def cmd_profile(message: Message, session: AsyncSession, settings: Setting
 async def cb_membership(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
     user = await get_or_create_user(session, callback.from_user)
     await callback.message.edit_text(
-        await _membership_status_text(session, user.id, settings),
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        await _membership_status_text(session, user.id, settings, user.preferred_language),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await callback.answer()
 
 
 @router.message(Command("support"))
-async def cmd_support(message: Message, settings: Settings) -> None:
-    await message.answer(_support_text(settings), reply_markup=main_menu_keyboard(settings.mini_app_client_url))
+async def cmd_support(message: Message, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, message.from_user)
+    await message.answer(
+        _support_text(settings, user.preferred_language),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+    )
 
 
 @router.callback_query(F.data == "main:support")
-async def cb_support(callback: CallbackQuery, settings: Settings) -> None:
+async def cb_support_with_session(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     await callback.message.edit_text(
-        _support_text(settings),
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        _support_text(settings, user.preferred_language),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await callback.answer()
 
 
 @router.callback_query(F.data == "main:faq")
-async def cb_faq(callback: CallbackQuery, settings: Settings) -> None:
-    text = (
-        "<b>FAQ</b>\n\n"
-        "<b>Los links son permanentes?</b>\n"
-        "No. Son temporales y de un solo uso.\n\n"
-        "<b>Cuando recibo acceso?</b>\n"
-        "Despues de que un administrador apruebe el comprobante.\n\n"
-        "<b>Puedo renovar?</b>\n"
-        "Si. Elige un plan desde /plans y envia el nuevo comprobante."
-    )
+async def cb_faq(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    user = await get_or_create_user(session, callback.from_user)
+    text = t(user.preferred_language, "faq.body")
     if settings.faq_url:
         text += f"\n\nFAQ completa: {h(settings.faq_url)}"
     await callback.message.edit_text(
         text,
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
         disable_web_page_preview=True,
     )
     await callback.answer()
@@ -185,12 +226,13 @@ async def _membership_status_text(
     session: AsyncSession,
     user_id: int,
     settings: Settings,
+    language: str,
 ) -> str:
     memberships = await get_active_memberships(session, user_id)
     if not memberships:
-        return "<b>Estado de membresia</b>\n\nNo tienes membresias activas."
+        return t(language, "membership.empty")
 
-    lines = ["<b>Estado de membresia</b>\n"]
+    lines = [t(language, "membership.title") + "\n"]
     for membership in memberships:
         lines.append(
             f"<b>{h(membership.plan.name)}</b>\n"
@@ -200,14 +242,7 @@ async def _membership_status_text(
     return "\n\n".join(lines)
 
 
-def _support_text(settings: Settings) -> str:
+def _support_text(settings: Settings, language: str) -> str:
     if settings.support_url:
-        return (
-            "<b>Soporte</b>\n\n"
-            "Contacta al equipo desde este enlace:\n"
-            f"{h(settings.support_url)}"
-        )
-    return (
-        "<b>Soporte</b>\n\n"
-        "Soporte aun no esta configurado. Pide al administrador definir SUPPORT_URL."
-    )
+        return t(language, "support.url", url=h(settings.support_url))
+    return t(language, "support.unset")

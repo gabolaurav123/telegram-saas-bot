@@ -12,6 +12,7 @@ from app.keyboards.admin import (
     admin_plans_keyboard,
     back_admin_keyboard,
     payment_methods_admin_keyboard,
+    plan_payment_methods_keyboard,
 )
 from app.models.enums import PaymentProvider, Role
 from app.services.admins import require_role
@@ -29,6 +30,7 @@ from app.services.plans import (
     list_plans,
     set_plan_payment_message,
     toggle_plan,
+    toggle_plan_payment_method,
 )
 from app.services.users import get_or_create_user
 from app.states.admin import AdminPaymentMethodStates, AdminPlanStates
@@ -36,6 +38,7 @@ from app.utils.text import h, money
 from app.utils.validators import parse_decimal, parse_positive_int
 from app.models.channel import Channel
 from app.models.group import TelegramGroup
+from app.services.currency import plan_price_to_stars
 
 router = Router(name="admin_catalog")
 
@@ -105,7 +108,7 @@ async def cb_view_admin_plan(callback: CallbackQuery, session: AsyncSession, set
     if plan is None:
         await callback.answer("Plan no encontrado.", show_alert=True)
         return
-    await callback.message.edit_text(_plan_admin_text(plan), reply_markup=admin_plan_detail_keyboard(plan.id))
+    await callback.message.edit_text(_plan_admin_text(plan, settings), reply_markup=admin_plan_detail_keyboard(plan.id))
     await callback.answer()
 
 
@@ -114,8 +117,51 @@ async def cb_toggle_plan(callback: CallbackQuery, session: AsyncSession, setting
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
     actor = await get_or_create_user(session, callback.from_user)
     plan = await toggle_plan(session, int(callback.data.split(":")[-1]), actor=actor)
-    await callback.message.edit_text(_plan_admin_text(plan), reply_markup=admin_plan_detail_keyboard(plan.id))
+    await callback.message.edit_text(_plan_admin_text(plan, settings), reply_markup=admin_plan_detail_keyboard(plan.id))
     await callback.answer("Estado actualizado.")
+
+
+@router.callback_query(F.data.startswith("adm:plans:methods:"))
+async def cb_plan_methods(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    plan_id = int(callback.data.split(":")[-1])
+    plan = await get_plan(session, plan_id)
+    if plan is None:
+        await callback.answer("Plan no encontrado.", show_alert=True)
+        return
+    methods = await list_payment_methods(session)
+    await callback.message.edit_text(
+        "<b>Metodos activos por plan</b>\n\n"
+        f"Plan: <b>{h(plan.name)}</b>\n"
+        "Activa solo los metodos que este plan debe ofrecer al usuario.",
+        reply_markup=plan_payment_methods_keyboard(plan, methods),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("adm:plans:method_toggle:"))
+async def cb_toggle_plan_method(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    _, _, _, plan_id_raw, method_id_raw = callback.data.split(":")
+    actor = await get_or_create_user(session, callback.from_user)
+    try:
+        plan = await toggle_plan_payment_method(
+            session,
+            plan_id=int(plan_id_raw),
+            payment_method_id=int(method_id_raw),
+            actor=actor,
+        )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+    methods = await list_payment_methods(session)
+    await callback.message.edit_text(
+        "<b>Metodos activos por plan</b>\n\n"
+        f"Plan: <b>{h(plan.name)}</b>\n"
+        "Activa solo los metodos que este plan debe ofrecer al usuario.",
+        reply_markup=plan_payment_methods_keyboard(plan, methods),
+    )
+    await callback.answer("Metodo actualizado.")
 
 
 @router.callback_query(F.data.startswith("adm:plans:delete:"))
@@ -262,7 +308,7 @@ async def cb_create_method(callback: CallbackQuery, state: FSMContext, session: 
         "<b>Crear metodo de pago</b>\n\n"
         "Formato:\n"
         "<code>Nombre | PROVIDER | Instrucciones</code>\n\n"
-        "Providers: PAYPAL, BANK_TRANSFER, BINANCE, STRIPE, QR, CRYPTO, CUSTOM"
+        "Providers: PAYPAL, BANK_TRANSFER, TELEGRAM_STARS, BINANCE, STRIPE, QR, CRYPTO, CUSTOM"
     )
     await callback.answer()
 
@@ -301,18 +347,26 @@ async def cb_toggle_method(callback: CallbackQuery, session: AsyncSession, setti
     await callback.answer("Estado actualizado.")
 
 
-def _plan_admin_text(plan) -> str:
+def _plan_admin_text(plan, settings: Settings) -> str:
     channels = ", ".join(f"{item.title}#{item.id}" for item in plan.channels) or "-"
     groups = ", ".join(f"{item.title}#{item.id}" for item in plan.groups) or "-"
     methods = ", ".join(f"{item.name}#{item.id}" for item in plan.payment_methods) or "-"
+    try:
+        stars = plan_price_to_stars(plan, settings)
+        stars_line = (
+            f"Stars estimado: <b>{stars.stars_amount} XTR</b> "
+            f"({stars.usd_amount} USD, tasa {stars.rate_to_usd})"
+        )
+    except ValueError as exc:
+        stars_line = f"Stars estimado: <b>No disponible</b> ({h(str(exc))})"
     return (
         f"<b>{h(plan.name)}</b>\n\n"
         f"Estado: <b>{'Activo' if plan.is_active else 'Inactivo'}</b>\n"
         f"Precio: <b>{money(plan.price, plan.currency)}</b>\n"
+        f"{stars_line}\n"
         f"Duracion: <b>{plan.duration_days} dias</b>\n"
         f"Slug: <code>{h(plan.slug)}</code>\n\n"
         f"Canales: {h(channels)}\n"
         f"Grupos: {h(groups)}\n"
         f"Metodos: {h(methods)}"
     )
-

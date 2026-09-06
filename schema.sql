@@ -140,6 +140,7 @@ CREATE TABLE users (
 	first_name VARCHAR(255), 
 	last_name VARCHAR(255), 
 	language_code VARCHAR(16), 
+	preferred_language VARCHAR(8) DEFAULT 'es' NOT NULL, 
 	is_bot BOOLEAN DEFAULT 'false' NOT NULL, 
 	status VARCHAR(32) DEFAULT 'ACTIVE' NOT NULL, 
 	registered_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
@@ -174,6 +175,7 @@ CREATE INDEX ix_users_first_started_at ON users (first_started_at);
 CREATE INDEX ix_users_is_vip ON users (is_vip);
 CREATE INDEX ix_users_last_contacted_at ON users (last_contacted_at);
 CREATE INDEX ix_users_last_start_at ON users (last_start_at);
+CREATE INDEX ix_users_preferred_language ON users (preferred_language);
 CREATE UNIQUE INDEX ix_users_referral_code ON users (referral_code);
 CREATE INDEX ix_users_referred_by_user_id ON users (referred_by_user_id);
 CREATE INDEX ix_users_registered_at ON users (registered_at);

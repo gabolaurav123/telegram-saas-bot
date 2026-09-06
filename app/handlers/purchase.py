@@ -27,6 +27,7 @@ from app.services.payments import get_payment_request
 from app.services.plans import get_plan
 from app.services.users import get_or_create_user
 from app.states.purchase import PurchaseStates
+from app.utils.i18n import t
 from app.utils.text import DEFAULT_PAYMENT_TEMPLATE, h, money, render_template
 
 router = Router(name="purchase")
@@ -41,11 +42,11 @@ async def _render_payment_instructions(
     session: AsyncSession,
     renewal_membership_id: int | None = None,
 ) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     method = await get_payment_method(session, method_id)
     if method is None or not method.is_active:
-        await callback.answer("Metodo no disponible.", show_alert=True)
+        await callback.answer(t(user.preferred_language, "payment.method_unavailable"), show_alert=True)
         return
-    user = await get_or_create_user(session, callback.from_user)
     await set_crm_status(session, user=user, status=CRMStatus.PAYMENT_PENDING, reason="payment_method_selected")
     await record_funnel_event(
         session,
@@ -89,7 +90,7 @@ async def _render_payment_instructions(
     )
     await callback.message.edit_text(
         f"{h(rendered)}",
-        reply_markup=cancel_purchase_keyboard(),
+        reply_markup=cancel_purchase_keyboard(user.preferred_language),
         disable_web_page_preview=True,
     )
     await callback.answer()
@@ -105,11 +106,13 @@ async def cb_select_payment_method(
     _, plan_id_raw, method_id_raw = callback.data.split(":")
     plan = await get_plan(session, int(plan_id_raw))
     if plan is None or not plan.is_active:
-        await callback.answer("Plan no disponible.", show_alert=True)
+        user = await get_or_create_user(session, callback.from_user)
+        await callback.answer(t(user.preferred_language, "plan.unavailable"), show_alert=True)
         return
-    method = await get_payment_method(session, int(method_id_raw))
-    if method is None or not method.is_active:
-        await callback.answer("Metodo no disponible.", show_alert=True)
+    method = _active_plan_method(plan, int(method_id_raw))
+    if method is None:
+        user = await get_or_create_user(session, callback.from_user)
+        await callback.answer(t(user.preferred_language, "payment.method_unavailable"), show_alert=True)
         return
     if method.provider == PaymentProvider.TELEGRAM_STARS:
         await _send_stars_invoice(
@@ -149,15 +152,17 @@ async def cb_renew_membership(
         return
     methods = [method for method in membership.plan.payment_methods if method.is_active]
     if not methods:
-        await callback.answer("Este plan no tiene metodos de pago activos.", show_alert=True)
+        await callback.answer(t(membership.user.preferred_language, "plan.no_methods"), show_alert=True)
         return
     await callback.message.edit_text(
-        f"<b>Renovar {h(membership.plan.name)}</b>\n\n"
-        "Selecciona metodo de pago. La renovacion queda pendiente hasta que un admin apruebe el comprobante.",
+        t(membership.user.preferred_language, "renew.title", plan=h(membership.plan.name))
+        + "\n\n"
+        + t(membership.user.preferred_language, "renew.select_payment"),
         reply_markup=renewal_payment_methods_keyboard(
             membership_id=membership.id,
             plan_id=membership.plan.id,
             methods=methods,
+            language=membership.user.preferred_language,
         ),
     )
     await callback.answer()
@@ -175,6 +180,7 @@ async def cb_select_renewal_payment_method(
         select(Membership)
         .options(
             selectinload(Membership.user),
+            selectinload(Membership.plan).selectinload(Plan.payment_methods),
             selectinload(Membership.plan).selectinload(Plan.payment_messages),
         )
         .where(Membership.id == int(membership_id_raw), Membership.plan_id == int(plan_id_raw))
@@ -183,11 +189,11 @@ async def cb_select_renewal_payment_method(
         await callback.answer("Membresia no encontrada.", show_alert=True)
         return
     if membership.plan is None or not membership.plan.is_active:
-        await callback.answer("Plan no disponible.", show_alert=True)
+        await callback.answer(t(membership.user.preferred_language, "plan.unavailable"), show_alert=True)
         return
-    method = await get_payment_method(session, int(method_id_raw))
-    if method is None or not method.is_active:
-        await callback.answer("Metodo no disponible.", show_alert=True)
+    method = _active_plan_method(membership.plan, int(method_id_raw))
+    if method is None:
+        await callback.answer(t(membership.user.preferred_language, "payment.method_unavailable"), show_alert=True)
         return
     if method.provider == PaymentProvider.TELEGRAM_STARS:
         await _send_stars_invoice(
@@ -211,11 +217,17 @@ async def cb_select_renewal_payment_method(
 
 
 @router.callback_query(F.data == "purchase:cancel")
-async def cb_cancel_purchase(callback: CallbackQuery, state: FSMContext, settings: Settings) -> None:
+async def cb_cancel_purchase(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     await state.clear()
     await callback.message.edit_text(
-        "Compra cancelada. Puedes volver al menu principal.",
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        t(user.preferred_language, "purchase.cancelled"),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await callback.answer()
 
@@ -269,7 +281,10 @@ async def receive_payment_proof(
             metadata_json=metadata_json,
         )
     except (TelegramAPIError, ValueError) as exc:
-        await message.answer(str(exc), reply_markup=main_menu_keyboard(settings.mini_app_client_url))
+        await message.answer(
+            str(exc),
+            reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
+        )
         await state.clear()
         return
 
@@ -281,18 +296,18 @@ async def receive_payment_proof(
         settings=settings,
     )
     await message.answer(
-        "<b>Comprobante recibido</b>\n\n"
-        "Tu solicitud quedo pendiente de revision. Te notificaremos cuando sea aprobada o rechazada.",
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        t(user.preferred_language, "purchase.proof_received"),
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await state.clear()
 
 
 @router.message(PurchaseStates.waiting_for_proof)
-async def receive_invalid_payment_proof(message: Message) -> None:
+async def receive_invalid_payment_proof(message: Message, session: AsyncSession) -> None:
+    user = await get_or_create_user(session, message.from_user)
     await message.answer(
-        "Necesito una imagen o documento del comprobante.",
-        reply_markup=cancel_purchase_keyboard(),
+        t(user.preferred_language, "purchase.proof_invalid"),
+        reply_markup=cancel_purchase_keyboard(user.preferred_language),
     )
 
 
@@ -331,13 +346,22 @@ async def _send_stars_invoice(
         currency="XTR",
         prices=prices,
     )
+    usd_amount = request.metadata_json.get("usd_amount", "-")
+    source_amount = request.metadata_json.get("source_amount", str(plan.price))
+    source_currency = request.metadata_json.get("source_currency", plan.currency)
     await callback.message.edit_text(
-        "<b>Pago con Telegram Stars</b>\n\n"
-        "Te envie una factura nativa de Telegram. El acceso se activara automaticamente "
-        "solo cuando Telegram confirme el pago.",
-        reply_markup=main_menu_keyboard(settings.mini_app_client_url),
+        f"{t(user.preferred_language, 'stars.title')}\n\n"
+        f"{t(user.preferred_language, 'stars.original_price')}: <b>{h(source_amount)} {h(source_currency)}</b>\n"
+        f"{t(user.preferred_language, 'stars.usd_equivalent')}: <b>{h(usd_amount)} USD</b>\n"
+        f"{t(user.preferred_language, 'stars.total')}: <b>{prices[0].amount} XTR</b>\n\n"
+        f"{t(user.preferred_language, 'stars.sent')}",
+        reply_markup=main_menu_keyboard(settings.mini_app_client_url, user.preferred_language),
     )
     await callback.answer()
+
+
+def _active_plan_method(plan: Plan, method_id: int):
+    return next((method for method in plan.payment_methods if method.id == method_id and method.is_active), None)
 
 
 @router.pre_checkout_query()

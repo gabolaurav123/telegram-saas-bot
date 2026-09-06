@@ -133,11 +133,26 @@ def admin_plans_keyboard(plans: list[Plan]) -> InlineKeyboardMarkup:
 def admin_plan_detail_keyboard(plan_id: int) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="Activar/desactivar", callback_data=f"adm:plans:toggle:{plan_id}")
+    builder.button(text="Metodos del plan", callback_data=f"adm:plans:methods:{plan_id}")
     builder.button(text="Vincular canal", callback_data=f"adm:plans:link_channel:{plan_id}")
     builder.button(text="Vincular grupo", callback_data=f"adm:plans:link_group:{plan_id}")
     builder.button(text="Mensaje por metodo", callback_data=f"adm:plans:message:{plan_id}")
     builder.button(text="Eliminar", callback_data=f"adm:plans:delete:{plan_id}")
     builder.button(text="Volver", callback_data="adm:plans")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def plan_payment_methods_keyboard(plan: Plan, methods: list[PaymentMethod]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    enabled_ids = {method.id for method in plan.payment_methods}
+    for method in methods:
+        status = "ON" if method.id in enabled_ids and method.is_active else "OFF"
+        builder.button(
+            text=f"{status} {method.name}",
+            callback_data=f"adm:plans:method_toggle:{plan.id}:{method.id}",
+        )
+    builder.button(text="Volver al plan", callback_data=f"adm:plans:view:{plan.id}")
     builder.adjust(1)
     return builder.as_markup()
 
