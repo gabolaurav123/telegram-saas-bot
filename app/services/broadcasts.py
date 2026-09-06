@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.config.settings import Settings
 from app.database.session import async_session_factory
 from app.models.broadcast import BroadcastJob, BroadcastRecipient
-from app.models.enums import LogAction, MembershipStatus, UserStatus
+from app.models.enums import DeliveryStatus, LogAction, MembershipStatus, UserStatus
 from app.models.membership import Membership
 from app.models.user import User
 from app.services.logs import log_event
@@ -166,18 +166,22 @@ async def run_broadcast_job(*, bot: Bot, settings: Settings, job_id: int) -> Non
                 except TelegramForbiddenError as exc:
                     row.status = "BLOCKED"
                     row.last_error = str(exc)[:500]
+                    row.user.delivery_status = DeliveryStatus.BLOCKED.value
+                    row.user.blocked_at = utc_now()
                     job.blocked += 1
                 except (TelegramBadRequest, TelegramAPIError) as exc:
                     if row.attempts <= settings.broadcast_max_retries:
                         row.status = "RETRY"
                     else:
                         row.status = "FAILED"
+                        row.user.delivery_status = DeliveryStatus.FAILED.value
                         job.failed += 1
                     row.last_error = str(exc)[:500]
                 else:
                     row.status = "SENT"
                     row.sent_at = utc_now()
+                    row.user.delivery_status = DeliveryStatus.SENT.value
+                    row.user.last_contacted_at = utc_now()
                     job.sent += 1
                 await asyncio.sleep(settings.broadcast_batch_delay_seconds)
             await session.commit()
-

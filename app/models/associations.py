@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Table, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Table
 
 from app.database.base import Base
 
@@ -10,7 +10,6 @@ plan_channels = Table(
     Base.metadata,
     Column("plan_id", ForeignKey("plans.id", ondelete="CASCADE"), primary_key=True),
     Column("channel_id", ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True),
-    UniqueConstraint("plan_id", "channel_id", name="uq_plan_channels_pair"),
 )
 
 
@@ -19,7 +18,6 @@ plan_groups = Table(
     Base.metadata,
     Column("plan_id", ForeignKey("plans.id", ondelete="CASCADE"), primary_key=True),
     Column("group_id", ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True),
-    UniqueConstraint("plan_id", "group_id", name="uq_plan_groups_pair"),
 )
 
 
@@ -32,6 +30,4 @@ plan_payment_methods = Table(
         ForeignKey("payment_methods.id", ondelete="CASCADE"),
         primary_key=True,
     ),
-    UniqueConstraint("plan_id", "payment_method_id", name="uq_plan_payment_methods_pair"),
 )
-

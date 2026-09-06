@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
 from app.models.enums import LogAction, MembershipStatus
+from app.models.crm import UserTag
 from app.models.membership import Membership
 from app.models.payment_request import PaymentRequest
 from app.models.user import User
@@ -29,6 +30,13 @@ HEADERS = [
     "metodo_pago",
     "total_pagos",
     "ultimo_acceso",
+    "crm_status",
+    "source",
+    "campaign",
+    "referral_code",
+    "delivery_status",
+    "tags",
+    "vip",
 ]
 
 
@@ -53,7 +61,9 @@ async def export_clients(
     for user in users:
         membership = await _latest_membership(session, user.id)
         total_payments = len(user.payment_requests)
-        payment_method = user.payment_requests[-1].payment_method.name if user.payment_requests else "-"
+        latest_payment = max(user.payment_requests, key=lambda item: item.submitted_at, default=None)
+        payment_method = latest_payment.payment_method.name if latest_payment else "-"
+        tags = ", ".join(item.tag.name for item in user.tags)
         rows.append(
             [
                 user.telegram_id,
@@ -66,6 +76,13 @@ async def export_clients(
                 payment_method,
                 total_payments,
                 human_datetime(user.last_seen_at, settings.app_timezone),
+                user.crm_status.value,
+                user.source or "",
+                user.campaign or "",
+                user.referral_code or "",
+                user.delivery_status,
+                tags,
+                "SI" if user.is_vip else "NO",
             ]
         )
 
@@ -97,7 +114,8 @@ async def _users_for_filter(
     date_to: datetime | None,
 ) -> list[User]:
     stmt = select(User).options(
-        selectinload(User.payment_requests).selectinload(PaymentRequest.payment_method)
+        selectinload(User.payment_requests).selectinload(PaymentRequest.payment_method),
+        selectinload(User.tags).selectinload(UserTag.tag),
     )
     active_membership = select(Membership.user_id).where(
         Membership.status == MembershipStatus.ACTIVE,

@@ -11,15 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config.settings import Settings
 from app.models.enums import Role
-from app.services.admins import require_role
-from app.services.channels import create_invite_links_for_plan
-from app.services.memberships import activate_membership
+from app.services.admins import require_permission
 from app.services.notifications import send_access_links, send_payment_rejected
+from app.services.payment_service import PaymentService
 from app.services.payments import (
     get_payment_request,
-    mark_payment_approved,
     mark_payment_banned,
-    mark_payment_rejected,
 )
 from app.services.users import get_or_create_user
 from app.states.admin import AdminPaymentReviewStates
@@ -35,7 +32,7 @@ async def cb_approve_payment(
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    await require_permission(session, callback.from_user.id, settings, "review_payments")
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
     async with PAYMENT_LOCKS[request_id]:
@@ -45,33 +42,12 @@ async def cb_approve_payment(
             return
 
         try:
-            await mark_payment_approved(session, request=request, admin_user=admin_user)
-            membership = await activate_membership(
-                session,
-                user=request.user,
-                plan=request.plan,
-                payment_request=request,
-                access_payload={
-                    "approved_by": admin_user.telegram_id,
-                    "request_kind": request.metadata_json.get("request_kind", "purchase"),
-                    "renewal_membership_id": request.metadata_json.get("renewal_membership_id"),
-                },
-            )
-            membership.plan = request.plan
-            links = await create_invite_links_for_plan(
+            membership, links = await PaymentService(session).approve_manual_payment(
                 bot=callback.bot,
-                session=session,
-                plan=request.plan,
-                user=request.user,
-                membership=membership,
-                payment_request=request,
-                approved_by=admin_user,
                 settings=settings,
+                request=request,
+                admin_user=admin_user,
             )
-            membership.access_payload = {
-                **(membership.access_payload or {}),
-                "links_created": len(links),
-            }
             try:
                 await send_access_links(
                     bot=callback.bot,
@@ -100,7 +76,7 @@ async def cb_reject_payment(
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    await require_permission(session, callback.from_user.id, settings, "review_payments")
     request_id = int(callback.data.split(":")[-1])
     if await get_payment_request(session, request_id) is None:
         await callback.answer("Solicitud no encontrada.", show_alert=True)
@@ -120,7 +96,7 @@ async def receive_rejection_reason(
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    await require_permission(session, message.from_user.id, settings, "review_payments")
     admin_user = await get_or_create_user(session, message.from_user)
     data = await state.get_data()
     request_id = int(data["payment_request_id"])
@@ -134,12 +110,7 @@ async def receive_rejection_reason(
         if reason == "-":
             reason = "Comprobante no aprobado."
         try:
-            await mark_payment_rejected(
-                session,
-                request=request,
-                admin_user=admin_user,
-                reason=reason,
-            )
+            await PaymentService(session).reject_payment(request=request, admin_user=admin_user, reason=reason)
             try:
                 await send_payment_rejected(
                     bot=message.bot,
@@ -163,7 +134,7 @@ async def cb_ban_from_payment(
     session: AsyncSession,
     settings: Settings,
 ) -> None:
-    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    await require_permission(session, callback.from_user.id, settings, "review_payments")
     admin_user = await get_or_create_user(session, callback.from_user)
     request_id = int(callback.data.split(":")[-1])
     async with PAYMENT_LOCKS[request_id]:

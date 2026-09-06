@@ -7,7 +7,7 @@ from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.access_event import MembershipAccessEvent
-from app.models.enums import AccessEventKind, LogAction, MembershipStatus, PaymentRequestStatus
+from app.models.enums import AccessEventKind, CRMStatus, LogAction, MembershipStatus, PaymentRequestStatus
 from app.models.log import SystemLog
 from app.models.membership import Membership
 from app.models.payment_request import PaymentRequest
@@ -70,6 +70,12 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
             PaymentRequest.status == PaymentRequestStatus.APPROVED
         )
     )
+    leads = await session.scalar(select(func.count(User.id)).where(User.crm_status == CRMStatus.LEAD))
+    interested = await session.scalar(select(func.count(User.id)).where(User.crm_status == CRMStatus.INTERESTED))
+    payment_pending = await session.scalar(
+        select(func.count(User.id)).where(User.crm_status == CRMStatus.PAYMENT_PENDING)
+    )
+    recovered = await session.scalar(select(func.count(User.id)).where(User.crm_status == CRMStatus.RECOVERED))
     top_plans_result = await session.execute(
         select(Plan.name, func.count(PaymentRequest.id).label("sales"))
         .join(PaymentRequest, PaymentRequest.plan_id == Plan.id)
@@ -85,6 +91,10 @@ async def get_overview(session: AsyncSession) -> dict[str, object]:
         "active_week": int(active_week or 0),
         "active_memberships": int(active_memberships or 0),
         "pending_payments": int(pending_payments or 0),
+        "leads": int(leads or 0),
+        "interested": int(interested or 0),
+        "payment_pending": int(payment_pending or 0),
+        "recovered": int(recovered or 0),
         "revenue": Decimal(revenue or 0),
         "renewals": int(renewals or 0),
         "renewal_requested": int(renewal_requested or 0),

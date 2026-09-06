@@ -63,6 +63,18 @@ class Settings(BaseSettings):
     max_invite_links_per_batch: int = Field(default=100, alias="MAX_INVITE_LINKS_PER_BATCH")
     expired_link_reissue_hours: int = Field(default=24, alias="EXPIRED_LINK_REISSUE_HOURS")
 
+    receipt_max_download_mb: int = Field(default=20, alias="RECEIPT_MAX_DOWNLOAD_MB")
+    ai_enabled: bool = Field(default=False, alias="AI_ENABLED")
+    ocr_enabled: bool = Field(default=False, alias="OCR_ENABLED")
+    smart_replies_enabled: bool = Field(default=False, alias="SMART_REPLIES_ENABLED")
+    telegram_stars_enabled: bool = Field(default=True, alias="TELEGRAM_STARS_ENABLED")
+    telegram_stars_default_ratio: int = Field(default=1, alias="TELEGRAM_STARS_DEFAULT_RATIO")
+    external_payments_enabled: bool = Field(default=False, alias="EXTERNAL_PAYMENTS_ENABLED")
+    external_payment_webhook_secret: str | None = Field(default=None, alias="EXTERNAL_PAYMENT_WEBHOOK_SECRET")
+    mini_app_client_url: str | None = Field(default=None, alias="MINI_APP_CLIENT_URL")
+    mini_app_admin_url: str | None = Field(default=None, alias="MINI_APP_ADMIN_URL")
+    telegram_webhook_secret_token: str | None = Field(default=None, alias="TELEGRAM_WEBHOOK_SECRET_TOKEN")
+
     auto_create_db: bool = Field(default=False, alias="AUTO_CREATE_DB")
     db_pool_size: int = Field(default=10, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=20, alias="DB_MAX_OVERFLOW")

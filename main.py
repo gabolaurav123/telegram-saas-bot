@@ -20,8 +20,10 @@ from app.handlers import (
     admin_catalog,
     admin_chats,
     admin_exports,
+    admin_inbox,
     admin_invite_links,
     admin_payments,
+    admin_quick_replies,
     admin_users,
     common,
     plans,
@@ -32,6 +34,7 @@ from app.middlewares.database import DatabaseSessionMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
 from app.scheduler.setup import setup_scheduler
 from app.services.payment_methods import ensure_default_payment_methods
+from app.services.quick_replies import ensure_default_quick_replies
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +66,8 @@ async def bootstrap() -> None:
         logger.info("PostgreSQL connectivity OK")
         logger.info("Ensuring default payment methods")
         await ensure_default_payment_methods(session)
+        logger.info("Ensuring default quick replies")
+        await ensure_default_quick_replies(session)
         await session.commit()
 
     bot = Bot(
@@ -93,6 +98,8 @@ async def bootstrap() -> None:
         admin_catalog.router,
         admin_chats.router,
         admin_users.router,
+        admin_inbox.router,
+        admin_quick_replies.router,
         admin_invite_links.router,
         admin_broadcasts.router,
         admin_exports.router,

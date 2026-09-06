@@ -9,9 +9,11 @@ from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
 from app.models.enums import LogAction
+from app.models.messaging import InboxMessage
 from app.models.support import SupportReplyMap, SupportThread
 from app.models.user import User
 from app.services.logs import log_event
+from app.services.messaging import MessagingService
 from app.services.notifications import admin_chat_ids
 from app.utils.text import h
 from app.utils.time import utc_now
@@ -27,11 +29,32 @@ async def forward_user_message_to_admins(
 ) -> int:
     thread = await session.scalar(select(SupportThread).where(SupportThread.user_id == user.id))
     if thread is None:
-        thread = SupportThread(user_id=user.id, last_message_at=utc_now())
+        thread = SupportThread(
+            user_id=user.id,
+            status="OPEN",
+            unread_admin_count=1,
+            last_message_at=utc_now(),
+        )
         session.add(thread)
         await session.flush()
     else:
+        thread.status = "OPEN"
         thread.last_message_at = utc_now()
+        thread.unread_admin_count += 1
+
+    session.add(
+        InboxMessage(
+            support_thread_id=thread.id,
+            user_id=user.id,
+            direction="USER_TO_ADMIN",
+            telegram_chat_id=message.chat.id,
+            telegram_message_id=message.message_id,
+            content_type=message.content_type,
+            text=message.text or message.caption,
+            file_id=_message_file_id(message),
+            sent_at=utc_now(),
+        )
+    )
 
     text_preview = message.text or message.caption or message.content_type
     header = (
@@ -79,6 +102,7 @@ async def bridge_admin_reply(
     session: AsyncSession,
     admin_message: Message,
     admin_user: User,
+    override_text: str | None = None,
 ) -> bool:
     if not admin_message.reply_to_message:
         return False
@@ -92,10 +116,44 @@ async def bridge_admin_reply(
     )
     if mapping is None:
         return False
-    await bot.copy_message(
-        chat_id=mapping.user.telegram_id,
-        from_chat_id=admin_message.chat.id,
-        message_id=admin_message.message_id,
+    if override_text:
+        outbound = await MessagingService(session).send_text_to_user(
+            bot=bot,
+            target=mapping.user,
+            text=override_text,
+            actor=admin_user,
+            source="SUPPORT_QUICK_REPLY",
+            metadata={"thread_id": mapping.thread_id},
+        )
+    else:
+        outbound = await MessagingService(session).copy_admin_reply_to_user(
+            bot=bot,
+            admin_message=admin_message,
+            target=mapping.user,
+            actor=admin_user,
+            source="SUPPORT_REPLY",
+            metadata={"thread_id": mapping.thread_id},
+        )
+    thread = await session.get(SupportThread, mapping.thread_id)
+    if thread:
+        thread.assigned_admin_user_id = admin_user.id
+        thread.unread_admin_count = 0
+        thread.unread_user_count += 1
+        thread.last_message_at = utc_now()
+    session.add(
+        InboxMessage(
+            support_thread_id=mapping.thread_id,
+            user_id=mapping.user_id,
+            admin_user_id=admin_user.id,
+            direction="ADMIN_TO_USER",
+            telegram_chat_id=admin_message.chat.id,
+            telegram_message_id=admin_message.message_id,
+            content_type="text" if override_text else admin_message.content_type,
+            text=override_text or admin_message.text or admin_message.caption,
+            file_id=None if override_text else _message_file_id(admin_message),
+            sent_at=utc_now(),
+            metadata_json={"outbound_message_id": outbound.id},
+        )
     )
     await log_event(
         session,
@@ -106,3 +164,21 @@ async def bridge_admin_reply(
         details={"thread_id": mapping.thread_id},
     )
     return True
+
+
+def _message_file_id(message: Message) -> str | None:
+    if message.photo:
+        return message.photo[-1].file_id
+    if message.document:
+        return message.document.file_id
+    if message.video:
+        return message.video.file_id
+    if message.sticker:
+        return message.sticker.file_id
+    if message.voice:
+        return message.voice.file_id
+    if message.audio:
+        return message.audio.file_id
+    if message.video_note:
+        return message.video_note.file_id
+    return None

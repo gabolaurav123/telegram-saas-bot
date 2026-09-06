@@ -6,6 +6,8 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.keyboards.user import payment_methods_keyboard, plan_detail_keyboard, plans_keyboard
+from app.models.enums import CRMStatus
+from app.services.crm import record_funnel_event, set_crm_status
 from app.services.plans import get_plan, list_plans
 from app.services.users import get_or_create_user
 from app.utils.text import h, money
@@ -30,11 +32,14 @@ async def cb_plans(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("plan:view:"))
 async def cb_plan_view(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     plan_id = int(callback.data.split(":")[-1])
     plan = await get_plan(session, plan_id)
     if plan is None or not plan.is_active:
         await callback.answer("Plan no disponible.", show_alert=True)
         return
+    await set_crm_status(session, user=user, status=CRMStatus.PLAN_VIEWED, reason="plan_viewed")
+    await record_funnel_event(session, user=user, event_name="PLAN_VIEWED", plan_id=plan.id)
 
     channels_count = len([item for item in plan.channels if item.is_active])
     groups_count = len([item for item in plan.groups if item.is_active])
@@ -51,11 +56,14 @@ async def cb_plan_view(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("plan:buy:"))
 async def cb_plan_buy(callback: CallbackQuery, session: AsyncSession) -> None:
+    user = await get_or_create_user(session, callback.from_user)
     plan_id = int(callback.data.split(":")[-1])
     plan = await get_plan(session, plan_id)
     if plan is None or not plan.is_active:
         await callback.answer("Plan no disponible.", show_alert=True)
         return
+    await set_crm_status(session, user=user, status=CRMStatus.PLAN_SELECTED, reason="plan_selected")
+    await record_funnel_event(session, user=user, event_name="PLAN_SELECTED", plan_id=plan.id)
     methods = [method for method in plan.payment_methods if method.is_active]
     if not methods:
         await callback.answer("Este plan no tiene metodos de pago activos.", show_alert=True)
@@ -71,4 +79,3 @@ def _plans_text(plans: list) -> str:
     if not plans:
         return "<b>Planes</b>\n\nNo hay planes activos por ahora."
     return "<b>Planes disponibles</b>\n\nSelecciona un plan para ver detalles y comprar."
-

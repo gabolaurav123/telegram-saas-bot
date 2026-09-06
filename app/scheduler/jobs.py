@@ -14,19 +14,24 @@ from app.models.enums import AccessEventKind, LogAction, MembershipStatus
 from app.models.generated_invite_link import GeneratedInviteLink
 from app.models.membership import Membership
 from app.services.backups import export_csv_zip
+from app.services.automation import run_due_automation_jobs
 from app.services.channels import revoke_user_from_plan_chats
 from app.services.invite_links import reissue_expired_link
 from app.services.logs import log_event
 from app.services.memberships import (
-    expire_membership,
     memberships_due_to_expire,
     memberships_for_reminder,
 )
 from app.services.notifications import send_admin_log, send_membership_expired, send_membership_reminder
+from app.services.subscription_service import SubscriptionService
 from app.utils.text import h
 from app.utils.time import human_datetime, utc_now
 
 logger = logging.getLogger(__name__)
+
+
+async def run_automation_jobs(bot: Bot, settings: Settings) -> None:
+    await run_due_automation_jobs(bot, settings)
 
 
 async def send_expiration_reminders(bot: Bot, settings: Settings, days_before: int) -> None:
@@ -75,7 +80,7 @@ async def expire_memberships(bot: Bot, settings: Settings) -> None:
                         metadata_json={"error": result.get("error")} if result.get("error") else {},
                     )
                 )
-            await expire_membership(session, membership)
+            await SubscriptionService(session).expire(membership=membership)
             await log_event(
                 session,
                 LogAction.USER_KICKED,

@@ -8,6 +8,7 @@ from app.config.settings import Settings
 from app.scheduler.jobs import (
     create_automatic_backup,
     expire_memberships,
+    run_automation_jobs,
     reissue_expired_unused_links,
     send_expiration_reminders,
 )
@@ -48,6 +49,15 @@ def setup_scheduler(bot: Bot, settings: Settings) -> AsyncIOScheduler:
         hours=max(1, settings.expired_link_reissue_hours),
         kwargs={"bot": bot, "settings": settings},
         id="reissue_expired_unused_links",
+        replace_existing=True,
+        max_instances=1,
+    )
+    scheduler.add_job(
+        run_automation_jobs,
+        "interval",
+        minutes=1,
+        kwargs={"bot": bot, "settings": settings},
+        id="run_automation_jobs",
         replace_existing=True,
         max_instances=1,
     )

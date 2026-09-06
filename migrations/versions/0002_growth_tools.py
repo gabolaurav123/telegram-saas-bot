@@ -11,8 +11,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "generated_invite_links",
+    if not _has_table("generated_invite_links"):
+        op.create_table(
+            "generated_invite_links",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("creator_user_id", sa.Integer(), nullable=True),
         sa.Column("plan_id", sa.Integer(), nullable=False),
@@ -36,18 +37,19 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["used_by_user_id"], ["users.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("invite_link"),
-    )
-    op.create_index("ix_generated_invite_links_creator_user_id", "generated_invite_links", ["creator_user_id"])
-    op.create_index("ix_generated_invite_links_plan_id", "generated_invite_links", ["plan_id"])
-    op.create_index("ix_generated_invite_links_channel_id", "generated_invite_links", ["channel_id"])
-    op.create_index("ix_generated_invite_links_group_id", "generated_invite_links", ["group_id"])
-    op.create_index("ix_generated_invite_links_telegram_chat_id", "generated_invite_links", ["telegram_chat_id"])
-    op.create_index("ix_generated_invite_links_expire_at", "generated_invite_links", ["expire_at"])
-    op.create_index("ix_generated_invite_links_is_used", "generated_invite_links", ["is_used"])
-    op.create_index("ix_generated_invite_links_revoked_at", "generated_invite_links", ["revoked_at"])
+        )
+        op.create_index("ix_generated_invite_links_creator_user_id", "generated_invite_links", ["creator_user_id"])
+        op.create_index("ix_generated_invite_links_plan_id", "generated_invite_links", ["plan_id"])
+        op.create_index("ix_generated_invite_links_channel_id", "generated_invite_links", ["channel_id"])
+        op.create_index("ix_generated_invite_links_group_id", "generated_invite_links", ["group_id"])
+        op.create_index("ix_generated_invite_links_telegram_chat_id", "generated_invite_links", ["telegram_chat_id"])
+        op.create_index("ix_generated_invite_links_expire_at", "generated_invite_links", ["expire_at"])
+        op.create_index("ix_generated_invite_links_is_used", "generated_invite_links", ["is_used"])
+        op.create_index("ix_generated_invite_links_revoked_at", "generated_invite_links", ["revoked_at"])
 
-    op.create_table(
-        "broadcast_jobs",
+    if not _has_table("broadcast_jobs"):
+        op.create_table(
+            "broadcast_jobs",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("created_by_user_id", sa.Integer(), nullable=True),
         sa.Column("target", sa.String(length=40), nullable=False),
@@ -67,13 +69,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["created_by_user_id"], ["users.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["plan_id"], ["plans.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_broadcast_jobs_created_by_user_id", "broadcast_jobs", ["created_by_user_id"])
-    op.create_index("ix_broadcast_jobs_target", "broadcast_jobs", ["target"])
-    op.create_index("ix_broadcast_jobs_plan_id", "broadcast_jobs", ["plan_id"])
+        )
+        op.create_index("ix_broadcast_jobs_created_by_user_id", "broadcast_jobs", ["created_by_user_id"])
+        op.create_index("ix_broadcast_jobs_target", "broadcast_jobs", ["target"])
+        op.create_index("ix_broadcast_jobs_plan_id", "broadcast_jobs", ["plan_id"])
 
-    op.create_table(
-        "broadcast_recipients",
+    if not _has_table("broadcast_recipients"):
+        op.create_table(
+            "broadcast_recipients",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("job_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
@@ -87,12 +90,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("job_id", "user_id", name="uq_broadcast_recipient_job_user"),
-    )
-    op.create_index("ix_broadcast_recipients_job_id", "broadcast_recipients", ["job_id"])
-    op.create_index("ix_broadcast_recipients_user_id", "broadcast_recipients", ["user_id"])
+        )
+        op.create_index("ix_broadcast_recipients_job_id", "broadcast_recipients", ["job_id"])
+        op.create_index("ix_broadcast_recipients_user_id", "broadcast_recipients", ["user_id"])
 
-    op.create_table(
-        "support_threads",
+    if not _has_table("support_threads"):
+        op.create_table(
+            "support_threads",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("status", sa.String(length=32), server_default="OPEN", nullable=False),
@@ -102,13 +106,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("user_id"),
-    )
-    op.create_index("ix_support_threads_user_id", "support_threads", ["user_id"])
-    op.create_index("ix_support_threads_status", "support_threads", ["status"])
-    op.create_index("ix_support_threads_last_message_at", "support_threads", ["last_message_at"])
+        )
+        op.create_index("ix_support_threads_user_id", "support_threads", ["user_id"])
+        op.create_index("ix_support_threads_status", "support_threads", ["status"])
+        op.create_index("ix_support_threads_last_message_at", "support_threads", ["last_message_at"])
 
-    op.create_table(
-        "support_reply_maps",
+    if not _has_table("support_reply_maps"):
+        op.create_table(
+            "support_reply_maps",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("thread_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
@@ -122,11 +127,11 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("admin_chat_id", "admin_message_id", name="uq_support_reply_admin_message"),
-    )
-    op.create_index("ix_support_reply_maps_thread_id", "support_reply_maps", ["thread_id"])
-    op.create_index("ix_support_reply_maps_user_id", "support_reply_maps", ["user_id"])
-    op.create_index("ix_support_reply_maps_admin_chat_id", "support_reply_maps", ["admin_chat_id"])
-    op.create_index("ix_support_reply_maps_admin_message_id", "support_reply_maps", ["admin_message_id"])
+        )
+        op.create_index("ix_support_reply_maps_thread_id", "support_reply_maps", ["thread_id"])
+        op.create_index("ix_support_reply_maps_user_id", "support_reply_maps", ["user_id"])
+        op.create_index("ix_support_reply_maps_admin_chat_id", "support_reply_maps", ["admin_chat_id"])
+        op.create_index("ix_support_reply_maps_admin_message_id", "support_reply_maps", ["admin_message_id"])
 
 
 def downgrade() -> None:
@@ -136,3 +141,6 @@ def downgrade() -> None:
     op.drop_table("broadcast_jobs")
     op.drop_table("generated_invite_links")
 
+
+def _has_table(table_name: str) -> bool:
+    return table_name in sa.inspect(op.get_bind()).get_table_names()

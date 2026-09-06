@@ -9,6 +9,7 @@ from app.models.enums import Role
 from app.models.group import TelegramGroup
 from app.models.payment_method import PaymentMethod
 from app.models.plan import Plan
+from app.models.quick_reply import QuickReply
 from app.utils.text import money
 
 
@@ -27,6 +28,14 @@ def admin_menu_keyboard(role: Role) -> InlineKeyboardMarkup:
     builder.button(text="Invite links", callback_data="adm:links")
     builder.button(text="Broadcast", callback_data="adm:broadcast")
     builder.button(text="Export clients", callback_data="adm:export")
+    builder.button(text="Inbox", callback_data="adm:inbox")
+    builder.button(text="Quick replies", callback_data="adm:quickreplies")
+    builder.button(text="Analytics", callback_data="adm:analytics")
+    builder.button(text="Funnel", callback_data="adm:funnel")
+    builder.button(text="Retention", callback_data="adm:retention")
+    builder.button(text="Coupons", callback_data="adm:coupons")
+    builder.button(text="Referrals", callback_data="adm:referrals")
+    builder.button(text="Automations", callback_data="adm:automations")
     builder.button(text="System health", callback_data="adm:health")
     builder.button(text="Scheduler status", callback_data="adm:scheduler")
     builder.button(text="Usuarios", callback_data="adm:users")
@@ -163,6 +172,30 @@ def admins_keyboard(admins: list[Admin]) -> InlineKeyboardMarkup:
             text=f"{admin.role.value}: {admin.user.display_name}",
             callback_data="adm:noop",
         )
+    builder.button(text="Volver", callback_data="adm:menu")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def user_admin_actions_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Enviar mensaje", callback_data=f"user:msg:{user_id}")
+    builder.button(text="Agregar nota", callback_data=f"user:note:{user_id}")
+    builder.button(text="Agregar tag", callback_data=f"user:tag:{user_id}")
+    builder.button(text="Marcar VIP", callback_data=f"user:vip:{user_id}")
+    builder.button(text="Bloquear CRM", callback_data=f"user:block:{user_id}")
+    builder.button(text="Reactivar CRM", callback_data=f"user:reactivate:{user_id}")
+    builder.button(text="Volver al panel", callback_data="adm:menu")
+    builder.adjust(2, 2, 2, 1)
+    return builder.as_markup()
+
+
+def quick_replies_keyboard(replies: list[QuickReply]) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Crear respuesta rapida", callback_data="qr:create")
+    for reply in replies:
+        status = "ON" if reply.is_active else "OFF"
+        builder.button(text=f"{status} {reply.command} - {reply.title}", callback_data="adm:noop")
     builder.button(text="Volver", callback_data="adm:menu")
     builder.adjust(1)
     return builder.as_markup()

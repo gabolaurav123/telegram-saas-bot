@@ -41,6 +41,13 @@ class PaymentRequest(Base, TimestampMixin):
     proof_file_id: Mapped[str | None] = mapped_column(String(255))
     proof_file_unique_id: Mapped[str | None] = mapped_column(String(255))
     proof_message_id: Mapped[int | None] = mapped_column()
+    receipt_sha256: Mapped[str | None] = mapped_column(String(64), index=True)
+    receipt_perceptual_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    receipt_warning_count: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    telegram_payment_charge_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True)
+    invoice_payload: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
+    reference: Mapped[str | None] = mapped_column(String(255), index=True)
     admin_note: Mapped[str | None] = mapped_column(Text)
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(

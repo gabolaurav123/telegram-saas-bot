@@ -14,13 +14,19 @@ if TYPE_CHECKING:
 
 class SupportThread(Base, TimestampMixin):
     __tablename__ = "support_threads"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_support_threads_user_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     status: Mapped[str] = mapped_column(default="OPEN", server_default="OPEN", nullable=False, index=True)
+    assigned_admin_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    unread_admin_count: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
+    unread_user_count: Mapped[int] = mapped_column(default=0, server_default="0", nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
-    user: Mapped["User"] = relationship(lazy="selectin")
+    user: Mapped["User"] = relationship(foreign_keys=[user_id], lazy="selectin")
+    assigned_admin: Mapped["User | None"] = relationship(foreign_keys=[assigned_admin_user_id], lazy="selectin")
 
 
 class SupportReplyMap(Base, TimestampMixin):
@@ -41,4 +47,3 @@ class SupportReplyMap(Base, TimestampMixin):
 
     thread: Mapped["SupportThread"] = relationship(lazy="selectin")
     user: Mapped["User"] = relationship(lazy="selectin")
-

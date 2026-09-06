@@ -11,6 +11,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if _has_column("generated_invite_links", "membership_id") and _has_table("membership_access_events"):
+        return
     op.add_column("generated_invite_links", sa.Column("membership_id", sa.Integer(), nullable=True))
     op.add_column("generated_invite_links", sa.Column("payment_request_id", sa.Integer(), nullable=True))
     op.add_column("generated_invite_links", sa.Column("approved_by_user_id", sa.Integer(), nullable=True))
@@ -129,3 +131,13 @@ def downgrade() -> None:
     op.drop_column("generated_invite_links", "approved_by_user_id")
     op.drop_column("generated_invite_links", "payment_request_id")
     op.drop_column("generated_invite_links", "membership_id")
+
+
+def _has_table(table_name: str) -> bool:
+    return table_name in sa.inspect(op.get_bind()).get_table_names()
+
+
+def _has_column(table_name: str, column_name: str) -> bool:
+    if not _has_table(table_name):
+        return False
+    return column_name in {column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)}

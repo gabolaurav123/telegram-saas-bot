@@ -9,16 +9,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
-from app.keyboards.admin import admins_keyboard, back_admin_keyboard
+from app.keyboards.admin import admins_keyboard, back_admin_keyboard, user_admin_actions_keyboard
 from app.models.access_event import MembershipAccessEvent
-from app.models.enums import LogAction, MembershipStatus, Role
+from app.models.crm import UserNote, UserTag
+from app.models.enums import CRMStatus, LogAction, MembershipStatus, PaymentRequestStatus, Role, UserStatus
 from app.models.generated_invite_link import GeneratedInviteLink
+from app.models.growth import Referral
 from app.models.log import SystemLog
 from app.models.membership import Membership
 from app.models.payment_request import PaymentRequest
 from app.models.support import SupportReplyMap, SupportThread
 from app.models.user import User
 from app.services.admins import add_admin, list_admins, remove_admin, require_role
+from app.services.crm import add_user_note, add_user_tag, set_crm_status
+from app.services.messaging import MessagingService
 from app.services.users import get_or_create_user, get_user_by_telegram_id
 from app.states.admin import AdminUserStates
 from app.utils.text import h, money
@@ -42,7 +46,7 @@ async def cmd_userinfo(message: Message, session: AsyncSession, settings: Settin
         return
     await message.answer(
         await _userinfo_text(session, user.id, settings),
-        reply_markup=back_admin_keyboard(),
+        reply_markup=user_admin_actions_keyboard(user.id),
         disable_web_page_preview=True,
     )
 
@@ -53,7 +57,8 @@ async def cb_admins(callback: CallbackQuery, session: AsyncSession, settings: Se
     admins = await list_admins(session)
     await callback.message.edit_text(
         "<b>Administradores</b>\n\n"
-        "Gestiona roles OWNER, ADMIN y MODERATOR. Los OWNER definidos en OWNER_IDS siempre conservan acceso.",
+        "Gestiona roles OWNER, SUPERVISOR, ADMIN, PAYMENTS, SUPPORT, SALES, MODERATOR y READ_ONLY. "
+        "Los OWNER definidos en OWNER_IDS siempre conservan acceso.",
         reply_markup=admins_keyboard(admins),
     )
     await callback.answer()
@@ -67,7 +72,7 @@ async def cb_add_admin(callback: CallbackQuery, state: FSMContext, session: Asyn
         "<b>Agregar administrador</b>\n\n"
         "Formato:\n"
         "<code>telegram_id ROLE</code>\n\n"
-        "Roles: OWNER, ADMIN, MODERATOR\n"
+        "Roles: OWNER, SUPERVISOR, ADMIN, PAYMENTS, SUPPORT, SALES, MODERATOR, READ_ONLY\n"
         "El usuario debe haber ejecutado /start antes."
     )
     await callback.answer()
@@ -122,6 +127,197 @@ async def receive_remove_admin(message: Message, state: FSMContext, session: Asy
         return
     await state.clear()
     await message.answer("Administrador eliminado.")
+
+
+@router.callback_query(F.data.startswith("user:msg:"))
+async def cb_user_direct_message(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    user_id = int(callback.data.split(":")[-1])
+    if await session.get(User, user_id) is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    await state.set_state(AdminUserStates.waiting_direct_message)
+    await state.update_data(target_user_id=user_id)
+    await callback.message.answer("Escribe el mensaje privado que quieres enviar al usuario.")
+    await callback.answer()
+
+
+@router.message(AdminUserStates.waiting_direct_message)
+async def receive_user_direct_message(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    data = await state.get_data()
+    target = await session.get(User, int(data["target_user_id"]))
+    if target is None:
+        await message.answer("Usuario no encontrado.")
+        await state.clear()
+        return
+    actor = await get_or_create_user(session, message.from_user)
+    outbound = await MessagingService(session).send_text_to_user(
+        bot=message.bot,
+        target=target,
+        text=message.text or "",
+        actor=actor,
+        source="ADMIN_DIRECT",
+    )
+    await state.clear()
+    await message.answer(f"Estado de envio: <b>{outbound.status.value}</b>")
+
+
+@router.callback_query(F.data.startswith("user:note:"))
+async def cb_user_note(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    user_id = int(callback.data.split(":")[-1])
+    if await session.get(User, user_id) is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    await state.set_state(AdminUserStates.waiting_note)
+    await state.update_data(target_user_id=user_id)
+    await callback.message.answer("Escribe la nota interna para este cliente.")
+    await callback.answer()
+
+
+@router.message(AdminUserStates.waiting_note)
+async def receive_user_note(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    data = await state.get_data()
+    target = await session.get(User, int(data["target_user_id"]))
+    if target is None:
+        await message.answer("Usuario no encontrado.")
+        await state.clear()
+        return
+    actor = await get_or_create_user(session, message.from_user)
+    await add_user_note(session, user=target, author=actor, note=message.text or "")
+    await state.clear()
+    await message.answer("Nota interna agregada.")
+
+
+@router.callback_query(F.data.startswith("user:tag:"))
+async def cb_user_tag(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    user_id = int(callback.data.split(":")[-1])
+    if await session.get(User, user_id) is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    await state.set_state(AdminUserStates.waiting_tag)
+    await state.update_data(target_user_id=user_id)
+    await callback.message.answer("Escribe el tag CRM a agregar.")
+    await callback.answer()
+
+
+@router.message(AdminUserStates.waiting_tag)
+async def receive_user_tag(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    await require_role(session, message.from_user.id, settings, Role.ADMIN)
+    data = await state.get_data()
+    target = await session.get(User, int(data["target_user_id"]))
+    if target is None:
+        await message.answer("Usuario no encontrado.")
+        await state.clear()
+        return
+    actor = await get_or_create_user(session, message.from_user)
+    await add_user_tag(session, user=target, tag_name=message.text or "", actor=actor)
+    await state.clear()
+    await message.answer("Tag agregado.")
+
+
+@router.callback_query(F.data.startswith("user:vip:"))
+async def cb_user_mark_vip(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    target = await session.get(User, int(callback.data.split(":")[-1]))
+    if target is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    actor = await get_or_create_user(session, callback.from_user)
+    target.is_vip = True
+    await set_crm_status(session, user=target, status=CRMStatus.VIP, reason="admin_mark_vip", actor_user_id=actor.id)
+    await callback.answer("Marcado como VIP.")
+    await callback.message.edit_text(
+        await _userinfo_text(session, target.id, settings),
+        reply_markup=user_admin_actions_keyboard(target.id),
+    )
+
+
+@router.callback_query(F.data.startswith("user:block:"))
+async def cb_user_block(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    target = await session.get(User, int(callback.data.split(":")[-1]))
+    if target is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    actor = await get_or_create_user(session, callback.from_user)
+    target.status = UserStatus.SUSPENDED
+    await set_crm_status(session, user=target, status=CRMStatus.BLOCKED, reason="admin_block", actor_user_id=actor.id)
+    await callback.answer("Usuario bloqueado en CRM.")
+    await callback.message.edit_text(
+        await _userinfo_text(session, target.id, settings),
+        reply_markup=user_admin_actions_keyboard(target.id),
+    )
+
+
+@router.callback_query(F.data.startswith("user:reactivate:"))
+async def cb_user_reactivate(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+    await require_role(session, callback.from_user.id, settings, Role.ADMIN)
+    target = await session.get(User, int(callback.data.split(":")[-1]))
+    if target is None:
+        await callback.answer("Usuario no encontrado.", show_alert=True)
+        return
+    actor = await get_or_create_user(session, callback.from_user)
+    target.status = UserStatus.ACTIVE
+    target.blocked_at = None
+    active_membership = await session.scalar(
+        select(Membership.id).where(
+            Membership.user_id == target.id,
+            Membership.status == MembershipStatus.ACTIVE,
+        )
+    )
+    await set_crm_status(
+        session,
+        user=target,
+        status=CRMStatus.ACTIVE if active_membership else CRMStatus.INTERESTED,
+        reason="admin_reactivate",
+        actor_user_id=actor.id,
+    )
+    await log_event(
+        session,
+        LogAction.USER_REACTIVATED,
+        f"Usuario reactivado: {target.telegram_id}",
+        actor_user_id=actor.id,
+        target_user_id=target.id,
+    )
+    await callback.answer("Usuario reactivado.")
+    await callback.message.edit_text(
+        await _userinfo_text(session, target.id, settings),
+        reply_markup=user_admin_actions_keyboard(target.id),
+    )
 
 
 async def _userinfo_text(session: AsyncSession, user_id: int, settings: Settings) -> str:
@@ -180,6 +376,33 @@ async def _userinfo_text(session: AsyncSession, user_id: int, settings: Settings
         .order_by(desc(SystemLog.created_at))
     )
     referral = (reg_log.details or {}).get("referral") if reg_log else None
+    referrals_count = await session.scalar(
+        select(func.count(Referral.id)).where(Referral.referrer_user_id == user_id)
+    )
+    approved_amount = await session.scalar(
+        select(func.coalesce(func.sum(PaymentRequest.amount), 0)).where(
+            PaymentRequest.user_id == user_id,
+            PaymentRequest.status == PaymentRequestStatus.APPROVED,
+            PaymentRequest.currency == settings.default_currency,
+        )
+    )
+    tags = list(
+        await session.scalars(
+            select(UserTag)
+            .options(selectinload(UserTag.tag))
+            .where(UserTag.user_id == user_id)
+            .order_by(desc(UserTag.created_at))
+            .limit(8)
+        )
+    )
+    notes = list(
+        await session.scalars(
+            select(UserNote)
+            .where(UserNote.user_id == user_id)
+            .order_by(desc(UserNote.created_at))
+            .limit(3)
+        )
+    )
     renewal_counts = {
         "requested": int(
             await session.scalar(
@@ -224,6 +447,8 @@ async def _userinfo_text(session: AsyncSession, user_id: int, settings: Settings
         f"{event.event_kind.value} | {h(event.chat_title)} | {human_datetime(event.event_at, settings.app_timezone)}"
         for event in events
     ] or ["-"]
+    tag_line = ", ".join(h(item.tag.name) for item in tags) or "-"
+    note_lines = [h(note.note[:140]) for note in notes] or ["-"]
 
     plan_name = active_membership.plan.name if active_membership else "-"
     expires_at = (
@@ -237,11 +462,18 @@ async def _userinfo_text(session: AsyncSession, user_id: int, settings: Settings
         f"Username: {h('@' + target.username if target.username else '-')}\n"
         f"Telegram ID: <code>{target.telegram_id}</code>\n"
         f"Registro: {human_datetime(target.registered_at, settings.app_timezone)}\n"
+        f"Ultimo contacto: {human_datetime(target.last_contacted_at, settings.app_timezone)}\n"
         f"Plan actual: <b>{h(plan_name)}</b>\n"
         f"Expiracion: {expires_at}\n"
-        f"Estado: <b>{target.status.value}</b>\n\n"
+        f"Estado: <b>{target.status.value}</b>\n"
+        f"CRM: <b>{target.crm_status.value}</b> | VIP: <b>{'SI' if target.is_vip else 'NO'}</b>\n"
+        f"Entrega mensajes: <b>{h(target.delivery_status)}</b>\n"
+        f"Source/Campaign: {h(target.source or '-')} / {h(target.campaign or '-')}\n"
+        f"Referral code: <code>{h(target.referral_code or '-')}</code>\n"
+        f"Tags: {tag_line}\n\n"
         "<b>Pagos recientes</b>\n"
         + "\n".join(payment_lines)
+        + f"\nTotal aprobado ({h(settings.default_currency)}): {money(approved_amount, settings.default_currency)}"
         + "\n\n<b>Renovaciones recientes</b>\n"
         f"Solicitadas/aprobadas/rechazadas: "
         f"{renewal_counts['requested']}/{renewal_counts['approved']}/{renewal_counts['rejected']}\n"
@@ -252,6 +484,9 @@ async def _userinfo_text(session: AsyncSession, user_id: int, settings: Settings
         + "\n".join(event_lines)
         + "\n\n<b>Tickets / mensajes</b>\n"
         f"Thread: {thread.status if thread else '-'} | Mensajes puente: {int(reply_count or 0)}\n\n"
+        "<b>Notas internas</b>\n"
+        + "\n".join(note_lines)
+        + "\n\n"
         "<b>Referral</b>\n"
-        f"{h(str(referral)) if referral else '-'}"
+        f"{h(str(referral)) if referral else '-'} | Referidos: {int(referrals_count or 0)}"
     )

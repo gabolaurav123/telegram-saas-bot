@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import CallbackQuery, Message, PreCheckoutQuery
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,12 +14,16 @@ from app.keyboards.user import (
     main_menu_keyboard,
     renewal_payment_methods_keyboard,
 )
-from app.models.enums import ProofKind
+from app.models.enums import CRMStatus, LogAction, PaymentProvider, ProofKind
 from app.models.membership import Membership
 from app.models.plan import Plan
+from app.services.crm import record_funnel_event, set_crm_status
+from app.services.logs import log_event
 from app.services.notifications import notify_admins_about_payment
+from app.services.notifications import send_access_links
 from app.services.payment_methods import get_payment_method
-from app.services.payments import create_payment_request, get_payment_request
+from app.services.payment_service import PaymentService
+from app.services.payments import get_payment_request
 from app.services.plans import get_plan
 from app.services.users import get_or_create_user
 from app.states.purchase import PurchaseStates
@@ -40,6 +45,22 @@ async def _render_payment_instructions(
     if method is None or not method.is_active:
         await callback.answer("Metodo no disponible.", show_alert=True)
         return
+    user = await get_or_create_user(session, callback.from_user)
+    await set_crm_status(session, user=user, status=CRMStatus.PAYMENT_PENDING, reason="payment_method_selected")
+    await record_funnel_event(
+        session,
+        user=user,
+        event_name="PAYMENT_METHOD_SELECTED",
+        plan_id=plan.id,
+        metadata={"payment_method_id": method.id, "provider": method.provider.value},
+    )
+    await record_funnel_event(
+        session,
+        user=user,
+        event_name="BANK_DETAILS_VIEWED",
+        plan_id=plan.id,
+        metadata={"payment_method_id": method.id, "provider": method.provider.value},
+    )
 
     custom_message = next(
         (
@@ -79,11 +100,26 @@ async def cb_select_payment_method(
     callback: CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
+    settings: Settings,
 ) -> None:
     _, plan_id_raw, method_id_raw = callback.data.split(":")
     plan = await get_plan(session, int(plan_id_raw))
     if plan is None or not plan.is_active:
         await callback.answer("Plan no disponible.", show_alert=True)
+        return
+    method = await get_payment_method(session, int(method_id_raw))
+    if method is None or not method.is_active:
+        await callback.answer("Metodo no disponible.", show_alert=True)
+        return
+    if method.provider == PaymentProvider.TELEGRAM_STARS:
+        await _send_stars_invoice(
+            callback=callback,
+            state=state,
+            session=session,
+            settings=settings,
+            plan=plan,
+            method=method,
+        )
         return
     await _render_payment_instructions(
         callback=callback,
@@ -132,6 +168,7 @@ async def cb_select_renewal_payment_method(
     callback: CallbackQuery,
     state: FSMContext,
     session: AsyncSession,
+    settings: Settings,
 ) -> None:
     _, membership_id_raw, plan_id_raw, method_id_raw = callback.data.split(":")
     membership = await session.scalar(
@@ -147,6 +184,21 @@ async def cb_select_renewal_payment_method(
         return
     if membership.plan is None or not membership.plan.is_active:
         await callback.answer("Plan no disponible.", show_alert=True)
+        return
+    method = await get_payment_method(session, int(method_id_raw))
+    if method is None or not method.is_active:
+        await callback.answer("Metodo no disponible.", show_alert=True)
+        return
+    if method.provider == PaymentProvider.TELEGRAM_STARS:
+        await _send_stars_invoice(
+            callback=callback,
+            state=state,
+            session=session,
+            settings=settings,
+            plan=membership.plan,
+            method=method,
+            renewal_membership_id=membership.id,
+        )
         return
     await _render_payment_instructions(
         callback=callback,
@@ -204,8 +256,9 @@ async def receive_payment_proof(
         }
         if data.get("renewal_membership_id"):
             metadata_json["renewal_membership_id"] = int(data["renewal_membership_id"])
-        request = await create_payment_request(
-            session,
+        request = await PaymentService(session).create_manual_payment(
+            bot=message.bot,
+            settings=settings,
             user=user,
             plan=plan,
             payment_method=method,
@@ -215,7 +268,7 @@ async def receive_payment_proof(
             proof_message_id=message.message_id,
             metadata_json=metadata_json,
         )
-    except ValueError as exc:
+    except (TelegramAPIError, ValueError) as exc:
         await message.answer(str(exc), reply_markup=main_menu_keyboard())
         await state.clear()
         return
@@ -240,4 +293,117 @@ async def receive_invalid_payment_proof(message: Message) -> None:
     await message.answer(
         "Necesito una imagen o documento del comprobante.",
         reply_markup=cancel_purchase_keyboard(),
+    )
+
+
+async def _send_stars_invoice(
+    *,
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+    plan: Plan,
+    method,
+    renewal_membership_id: int | None = None,
+) -> None:
+    user = await get_or_create_user(session, callback.from_user)
+    metadata_json = {"request_kind": "renewal" if renewal_membership_id else "purchase"}
+    if renewal_membership_id:
+        metadata_json["renewal_membership_id"] = renewal_membership_id
+    try:
+        request, _, prices = await PaymentService(session).create_stars_invoice(
+            settings=settings,
+            user=user,
+            plan=plan,
+            payment_method=method,
+            metadata_json=metadata_json,
+        )
+    except ValueError as exc:
+        await callback.answer(str(exc), show_alert=True)
+        return
+    await state.clear()
+    await callback.bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title=plan.name[:32],
+        description=(plan.description or f"Acceso premium por {plan.duration_days} dias")[:255],
+        payload=request.invoice_payload or str(request.id),
+        provider_token="",
+        currency="XTR",
+        prices=prices,
+    )
+    await callback.message.edit_text(
+        "<b>Pago con Telegram Stars</b>\n\n"
+        "Te envie una factura nativa de Telegram. El acceso se activara automaticamente "
+        "solo cuando Telegram confirme el pago.",
+        reply_markup=main_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.pre_checkout_query()
+async def pre_checkout_stars(query: PreCheckoutQuery, session: AsyncSession) -> None:
+    ok = await PaymentService(session).approve_pre_checkout(payload=query.invoice_payload)
+    await query.answer(ok=ok, error_message=None if ok else "Factura vencida o no encontrada.")
+
+
+@router.message(F.successful_payment)
+async def successful_stars_payment(
+    message: Message,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    if message.successful_payment is None or message.successful_payment.currency != "XTR":
+        return
+    user = await get_or_create_user(session, message.from_user)
+    request = await PaymentService(session).process_successful_stars_payment(
+        successful_payment=message.successful_payment,
+    )
+    if request is None:
+        await message.answer("Pago recibido, pero no encontre la factura interna. Contacta soporte.")
+        return
+    membership, links = await PaymentService(session).fulfill_approved_payment(
+        bot=message.bot,
+        settings=settings,
+        request=request,
+        approved_by=None,
+    )
+    try:
+        await send_access_links(
+            bot=message.bot,
+            user_telegram_id=user.telegram_id,
+            membership=membership,
+            links=links,
+            settings=settings,
+        )
+    except TelegramAPIError as exc:
+        await log_event(
+            session,
+            LogAction.ERROR,
+            "Pago Stars confirmado, pero fallo el envio de links",
+            target_user_id=user.id,
+            severity="ERROR",
+            details={"payment_request_id": request.id, "error": str(exc)},
+        )
+        await message.answer(
+            "Pago confirmado, pero no pude enviarte los enlaces automaticamente. Soporte revisara tu caso."
+        )
+
+
+@router.message(F.refunded_payment)
+async def refunded_stars_payment(message: Message, session: AsyncSession) -> None:
+    refunded = getattr(message, "refunded_payment", None)
+    if refunded is None or getattr(refunded, "currency", None) != "XTR":
+        return
+    await PaymentService(session).refund_stars_payment(
+        telegram_payment_charge_id=refunded.telegram_payment_charge_id,
+    )
+
+
+@router.message(F.text == "/paysupport")
+async def cmd_pay_support(message: Message) -> None:
+    await message.answer(
+        "<b>Soporte de pagos</b>\n\n"
+        "Si pagaste por transferencia o PayPal, envia una imagen o documento del comprobante "
+        "dentro del flujo de compra. Si pagaste con Telegram Stars, espera la confirmacion nativa "
+        "de Telegram o escribe tu caso para que soporte lo revise."
     )

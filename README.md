@@ -10,7 +10,7 @@ Sistema profesional para vender y administrar membresias premium de Telegram med
 - SQLAlchemy 2 async + asyncpg
 - Alembic
 - APScheduler
-- Railway-ready
+- Railway/Seenode-ready
 
 ## Estructura
 
@@ -52,7 +52,11 @@ requirements.txt
 - Deteccion real de joins por invite link, logs a admins y auditoria en base de datos.
 - Reemision manual de links expirados sin join con `/reissuelink ID`.
 - Rechazo con motivo opcional y notificacion al usuario.
-- Roles estrictos: OWNER, ADMIN, MODERATOR.
+- CRM interno: `chat_id`, source/campaign/referral, estado comercial, tags, notas, VIP, historial y estado de entrega.
+- Antifraude de comprobantes: hash SHA-256, hash perceptual para imagenes y alertas de duplicados/similitud.
+- Telegram Stars como metodo de pago nativo opcional; el flujo manual sigue disponible.
+- Arquitectura preparada para pagos externos alojados mediante sesiones y webhooks idempotentes.
+- Roles estrictos: OWNER, SUPERVISOR, ADMIN, PAYMENTS, SUPPORT, SALES, MODERATOR, READ_ONLY.
 - Gestion de planes, metodos de pago, administradores, canales y grupos.
 - Registro automatico de canales/grupos cuando el bot es agregado como administrador.
 - Scheduler para recordatorios a 3 dias, 1 dia y expiracion.
@@ -65,6 +69,11 @@ requirements.txt
 - Broadcast por segmentos con `/broadcast`, batches, retries y resumen final.
 - Exportacion de clientes CSV/XLSX con `/exportclients`.
 - Soporte privado: mensajes de usuarios reenviados a admins y respuestas por reply.
+- Admin inbox con asignacion, resolucion, contadores de no leidos y persistencia de mensajes.
+- Quick replies configurables para soporte.
+- Motor de automatizaciones con reglas, jobs, dedupe y ejecucion desde scheduler.
+- Cupones, referrals, campaigns y funnel events listos para growth/retention.
+- Validador de Telegram Mini App `initData` para futuras Mini Apps cliente/admin.
 
 ## Variables de entorno
 
@@ -86,6 +95,22 @@ OWNER_ID=123456789
 `OWNER_ID` sirve para un propietario. `OWNER_IDS` acepta una lista separada por comas. Esos usuarios tienen control total aunque aun no existan en la tabla `admins`.
 
 Las URLs de Neon/Railway con `sslmode=require` son aceptadas; el sistema normaliza ese parametro internamente para `asyncpg`.
+
+Variables avanzadas agregadas:
+
+```env
+RECEIPT_MAX_DOWNLOAD_MB=20
+AI_ENABLED=false
+OCR_ENABLED=false
+SMART_REPLIES_ENABLED=false
+TELEGRAM_STARS_ENABLED=true
+TELEGRAM_STARS_DEFAULT_RATIO=1
+EXTERNAL_PAYMENTS_ENABLED=false
+EXTERNAL_PAYMENT_WEBHOOK_SECRET=
+MINI_APP_CLIENT_URL=
+MINI_APP_ADMIN_URL=
+TELEGRAM_WEBHOOK_SECRET_TOKEN=
+```
 
 ## Instalacion local
 
@@ -123,8 +148,13 @@ python main.py
 ## Permisos por rol
 
 - `OWNER`: control total, admins, configuracion, backups.
+- `SUPERVISOR`: gestion operativa amplia sin ser owner por entorno.
 - `ADMIN`: pagos, planes, metodos, canales, estadisticas, usuarios y logs.
-- `MODERATOR`: acceso basico de soporte.
+- `PAYMENTS`: revision de pagos y estadisticas.
+- `SUPPORT`: soporte e inbox.
+- `SALES`: estadisticas, broadcast y contacto directo.
+- `MODERATOR`: soporte basico.
+- `READ_ONLY`: lectura de metricas segun permisos.
 
 ## Railway
 
@@ -150,6 +180,28 @@ alembic upgrade head && python main.py
 ```
 
 El proyecto usa polling, por lo que no requiere dominio publico ni webhook.
+
+## Seenode
+
+Configura el servicio como worker/bot de larga duracion:
+
+```text
+pip install -r requirements.txt
+alembic upgrade head && python main.py
+```
+
+Variables minimas en Seenode:
+
+```env
+BOT_TOKEN=...
+DATABASE_URL=...
+OWNER_ID=8795701121
+APP_ENV=production
+SCHEDULER_ENABLED=true
+LOG_TO_FILE=true
+```
+
+No ejecutes otra instancia local con el mismo `BOT_TOKEN` mientras Seenode hace polling.
 
 ## Base de datos
 
@@ -200,6 +252,7 @@ Usuario:
 - `/profile`
 - `/plans`
 - `/support`
+- `/paysupport`
 
 Administracion:
 
@@ -214,6 +267,25 @@ Administracion:
 - `/userinfo TELEGRAM_ID`
 - `/broadcast`
 - `/exportclients`
+- `/inbox`
+- `/quickreplies`
+
+## Migraciones recientes
+
+- `0002_growth_tools`: invite links, broadcast y ticket-lite.
+- `0003_broadcast_bigint_chat_id`: soporte de chat IDs grandes en broadcast.
+- `0004_access_events`: tracking real de joins, leaves, kicks y reemision de links.
+- `0005_crm_growth`: CRM, inbox persistente, quick replies, antifraude, Telegram Stars, pagos externos, cupones, referrals, campaigns y automations.
+
+## Telegram Stars
+
+Para activar Stars:
+
+1. Mantén `TELEGRAM_STARS_ENABLED=true`.
+2. Activa el metodo `Telegram Stars` en los planes correspondientes.
+3. Opcionalmente define `stars_amount` dentro de `plans.metadata_json` para controlar el precio exacto en Stars.
+
+El invoice usa `currency=XTR` y `provider_token` vacio, como requiere Telegram para Stars. Documentacion: [Telegram Bot API Payments](https://core.telegram.org/bots/api#payments).
 
 ## Notas de produccion
 

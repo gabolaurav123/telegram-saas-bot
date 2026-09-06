@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import Settings
 from app.keyboards.user import main_menu_keyboard
 from app.models.enums import LogAction
+from app.services.crm import apply_start_attribution
 from app.services.logs import log_event
 from app.services.memberships import get_active_memberships
 from app.services.notifications import send_admin_log
@@ -27,6 +28,12 @@ async def cmd_start(
 ) -> None:
     user, created = await get_or_create_user_with_flag(session, message.from_user)
     referral = command.args.strip() if command.args else None
+    attribution = await apply_start_attribution(
+        session,
+        user=user,
+        raw_parameter=referral,
+        is_first_start=created,
+    )
     if created:
         await send_admin_log(
             bot=message.bot,
@@ -39,7 +46,9 @@ async def cmd_start(
                 f"ID: <code>{user.telegram_id}</code>",
                 f"Fecha: {human_datetime(user.registered_at, settings.app_timezone)}",
                 "Estado: Primer ingreso al bot",
-                f"Origen: {h(referral) if referral else '-'}",
+                f"Origen: {h(attribution.source or referral) if (attribution.source or referral) else '-'}",
+                f"Campana: {h(attribution.campaign) if attribution.campaign else '-'}",
+                f"Referral: {h(attribution.referral) if attribution.referral else '-'}",
             ],
         )
         await log_event(
@@ -47,7 +56,11 @@ async def cmd_start(
             LogAction.USER_REGISTERED,
             f"Nuevo usuario registrado: {user.telegram_id}",
             target_user_id=user.id,
-            details={"referral": referral},
+            details={
+                "referral": attribution.referral or referral,
+                "source": attribution.source,
+                "campaign": attribution.campaign,
+            },
         )
     text = (
         f"<b>{h(settings.public_brand_name)}</b>\n\n"
@@ -77,12 +90,14 @@ async def cmd_help(message: Message) -> None:
         "/profile - Estado de tu membresia\n"
         "/id - Ver tu Telegram ID\n"
         "/support - Contactar soporte\n"
+        "/paysupport - Ayuda con pagos\n"
         "/settings - Panel administrativo\n\n"
         "<b>Como comprar</b>\n"
         "1. Entra a /plans.\n"
         "2. Elige un plan y un metodo de pago.\n"
         "3. Sigue las instrucciones y envia tu comprobante.\n"
         "4. Un administrador aprobara o rechazara la solicitud.\n\n"
+        "Tambien puedes pagar con Telegram Stars si el plan tiene ese metodo activo.\n\n"
         "<b>Renovacion</b>\n"
         "Puedes renovar desde /plans antes o despues del vencimiento.\n\n"
         "<b>Reglas</b>\n"

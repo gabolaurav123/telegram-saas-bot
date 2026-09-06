@@ -108,7 +108,7 @@ async def create_invite_links_for_plan(
     user: User,
     membership: Membership,
     payment_request: PaymentRequest,
-    approved_by: User,
+    approved_by: User | None,
     settings: Settings,
 ) -> list[tuple[str, str]]:
     expire_date = utc_now() + timedelta(hours=max(10, settings.approved_invite_link_ttl_hours))
@@ -138,8 +138,8 @@ async def create_invite_links_for_plan(
             logger.exception("Could not create invite link for chat %s", chat_id)
             continue
         record = GeneratedInviteLink(
-            creator_user_id=approved_by.id,
-            approved_by_user_id=approved_by.id,
+            creator_user_id=approved_by.id if approved_by else None,
+            approved_by_user_id=approved_by.id if approved_by else None,
             plan_id=plan.id,
             membership_id=membership.id,
             payment_request_id=payment_request.id,

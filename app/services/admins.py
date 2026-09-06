@@ -15,7 +15,12 @@ from app.services.users import get_user_by_telegram_id
 
 
 ROLE_LEVEL = {
+    Role.READ_ONLY: 0,
+    Role.SUPPORT: 1,
+    Role.SALES: 1,
+    Role.PAYMENTS: 1,
     Role.MODERATOR: 1,
+    Role.SUPERVISOR: 2,
     Role.ADMIN: 2,
     Role.OWNER: 3,
 }
@@ -29,6 +34,8 @@ class Permission:
     review_payments: bool = False
     view_stats: bool = False
     support: bool = False
+    broadcast: bool = False
+    direct_message: bool = False
 
 
 ROLE_PERMISSIONS = {
@@ -39,14 +46,33 @@ ROLE_PERMISSIONS = {
         review_payments=True,
         view_stats=True,
         support=True,
+        broadcast=True,
+        direct_message=True,
+    ),
+    Role.SUPERVISOR: Permission(
+        manage_catalog=True,
+        review_payments=True,
+        view_stats=True,
+        support=True,
+        broadcast=True,
+        direct_message=True,
     ),
     Role.ADMIN: Permission(
         manage_catalog=True,
         review_payments=True,
         view_stats=True,
         support=True,
+        broadcast=True,
+        direct_message=True,
     ),
+    Role.PAYMENTS: Permission(
+        review_payments=True,
+        view_stats=True,
+    ),
+    Role.SUPPORT: Permission(support=True, direct_message=True),
+    Role.SALES: Permission(view_stats=True, broadcast=True, direct_message=True),
     Role.MODERATOR: Permission(support=True),
+    Role.READ_ONLY: Permission(view_stats=True),
 }
 
 
@@ -74,7 +100,7 @@ async def has_role(
     role = await get_role(session, telegram_id, settings)
     if role is None:
         return False
-    return ROLE_LEVEL[role] >= ROLE_LEVEL[minimum_role]
+    return ROLE_LEVEL.get(role, -1) >= ROLE_LEVEL.get(minimum_role, 99)
 
 
 async def require_role(
@@ -84,13 +110,27 @@ async def require_role(
     minimum_role: Role,
 ) -> Role:
     role = await get_role(session, telegram_id, settings)
-    if role is None or ROLE_LEVEL[role] < ROLE_LEVEL[minimum_role]:
+    if role is None or ROLE_LEVEL.get(role, -1) < ROLE_LEVEL.get(minimum_role, 99):
         raise PermissionError("No tienes permisos para realizar esta accion.")
     return role
 
 
 def permissions_for(role: Role) -> Permission:
-    return ROLE_PERMISSIONS[role]
+    return ROLE_PERMISSIONS.get(role, Permission())
+
+
+async def require_permission(
+    session: AsyncSession,
+    telegram_id: int,
+    settings: Settings,
+    permission: str,
+) -> Role:
+    role = await get_role(session, telegram_id, settings)
+    if role is None:
+        raise PermissionError("No tienes permisos para realizar esta accion.")
+    if not getattr(permissions_for(role), permission, False):
+        raise PermissionError("No tienes permisos para realizar esta accion.")
+    return role
 
 
 async def list_admins(session: AsyncSession) -> list[Admin]:
@@ -167,4 +207,3 @@ async def remove_admin(
         target_user_id=admin.user_id,
         details={"telegram_id": telegram_id},
     )
-

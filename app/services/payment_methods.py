@@ -26,6 +26,12 @@ DEFAULT_METHODS = [
         ),
         "sort_order": 20,
     },
+    {
+        "name": "Telegram Stars",
+        "provider": PaymentProvider.TELEGRAM_STARS,
+        "instructions": "Pago digital dentro de Telegram con Stars.",
+        "sort_order": 30,
+    },
 ]
 
 
@@ -79,4 +85,3 @@ async def toggle_payment_method(session: AsyncSession, method_id: int) -> Paymen
         raise ValueError("Metodo de pago no encontrado.")
     method.is_active = not method.is_active
     return method
-

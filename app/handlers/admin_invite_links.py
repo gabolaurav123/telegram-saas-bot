@@ -236,7 +236,6 @@ async def cb_revoke_link(callback: CallbackQuery, session: AsyncSession, setting
         link_id=int(callback.data.split(":")[-1]),
         actor=actor,
     )
-    await callback.answer(f"Link #{record.id} revocado.")
     await cb_links_panel(callback, session, settings)
 
 

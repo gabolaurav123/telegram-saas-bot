@@ -56,6 +56,12 @@ async def notify_admins_about_payment(
         f"Monto: {money(request.amount, request.currency)}\n"
         f"Fecha: {human_datetime(request.submitted_at, settings.app_timezone)}"
     )
+    if request.receipt_warning_count:
+        caption += (
+            "\n\n<b>Advertencias antifraude</b>\n"
+            f"Alertas: <b>{request.receipt_warning_count}</b>\n"
+            f"SHA256: <code>{h(request.receipt_sha256 or '-')}</code>"
+        )
     keyboard = payment_review_keyboard(request.id, request.user.telegram_id)
 
     for chat_id in chat_ids:

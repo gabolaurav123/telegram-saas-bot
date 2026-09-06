@@ -20,6 +20,9 @@ class AdminChatStates(StatesGroup):
 class AdminUserStates(StatesGroup):
     waiting_add_admin = State()
     waiting_remove_admin = State()
+    waiting_direct_message = State()
+    waiting_note = State()
+    waiting_tag = State()
 
 
 class AdminPaymentReviewStates(StatesGroup):
@@ -36,3 +39,7 @@ class BroadcastStates(StatesGroup):
 
 class ExportClientStates(StatesGroup):
     waiting_date_range = State()
+
+
+class QuickReplyStates(StatesGroup):
+    waiting_payload = State()
