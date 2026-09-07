@@ -66,10 +66,10 @@ requirements.txt
 - Logs de auditoria en base de datos y archivo local.
 - Exportacion CSV en ZIP desde el panel de backups.
 - Log automatico a admins cuando un usuario entra por primera vez con `/start`.
-- Generacion administrativa de invite links por plan/chat con `/addmember`, `/listlinks`, `/revokelink` y `/linkstats`.
+- Generacion administrativa de hasta 100 links por lote, por plan/chat, desde el acceso directo `Links de acceso` en `/settings` o con `/addmember`; cada link admite un usuario y vence con el plan.
 - Broadcast por segmentos con `/broadcast`, batches, retries y resumen final.
 - Exportacion de clientes CSV/XLSX con `/exportclients`.
-- Soporte privado: mensajes de usuarios reenviados a admins y respuestas por reply.
+- Soporte privado: mensajes de usuarios reenviados a admins y respuestas por reply con prioridad sobre formularios administrativos abandonados.
 - Admin inbox con asignacion, resolucion, contadores de no leidos y persistencia de mensajes.
 - Quick replies configurables para soporte.
 - Motor de automatizaciones con reglas, jobs, dedupe y ejecucion desde scheduler.
@@ -77,7 +77,7 @@ requirements.txt
 - Selector de idioma persistente con `/language`.
 - Mini Apps cliente/admin servidas por el mismo proceso, autenticadas con `initData` y conectadas a PostgreSQL.
 - Boton de menu persistente y catalogo de comandos configurados automaticamente por rol en cada arranque.
-- Panel `/settings` condensado por areas, pendientes navegables, cupones guiados y configuracion persistente.
+- Panel `/settings` condensado por areas, acceso directo a links, pendientes navegables, cupones guiados y configuracion persistente.
 
 ## Variables de entorno
 

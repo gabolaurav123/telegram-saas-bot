@@ -98,6 +98,7 @@ async def bootstrap() -> None:
     dp.callback_query.middleware(rate_limiter)
 
     dp.include_routers(
+        support.reply_router,
         common.router,
         plans.router,
         purchase.router,

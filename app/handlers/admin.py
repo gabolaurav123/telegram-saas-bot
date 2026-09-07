@@ -57,13 +57,19 @@ router = Router(name="admin")
 
 
 @router.message(Command("settings"))
-async def cmd_settings(message: Message, session: AsyncSession, settings: Settings) -> None:
+async def cmd_settings(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
     user = await get_or_create_user(session, message.from_user)
     try:
         role = await require_role(session, user.telegram_id, settings, Role.MODERATOR)
     except PermissionError:
         await message.answer("No tienes permisos para abrir el panel administrativo.")
         return
+    await state.clear()
     await message.answer(
         _admin_menu_text(role, user.preferred_language),
         reply_markup=admin_menu_keyboard(role, settings.mini_app_admin_url, user.preferred_language),
@@ -71,13 +77,19 @@ async def cmd_settings(message: Message, session: AsyncSession, settings: Settin
 
 
 @router.callback_query(F.data == "adm:menu")
-async def cb_admin_menu(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def cb_admin_menu(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
     user = await get_or_create_user(session, callback.from_user)
     try:
         role = await require_role(session, user.telegram_id, settings, Role.MODERATOR)
     except PermissionError:
         await callback.answer("Sin permisos.", show_alert=True)
         return
+    await state.clear()
     await callback.message.edit_text(
         _admin_menu_text(role, user.preferred_language),
         reply_markup=admin_menu_keyboard(role, settings.mini_app_admin_url, user.preferred_language),
@@ -86,9 +98,15 @@ async def cb_admin_menu(callback: CallbackQuery, session: AsyncSession, settings
 
 
 @router.callback_query(F.data.startswith("adm:section:"))
-async def cb_admin_section(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def cb_admin_section(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
     user = await get_or_create_user(session, callback.from_user)
     role = await require_role(session, user.telegram_id, settings, Role.MODERATOR)
+    await state.clear()
     section = callback.data.rsplit(":", 1)[-1]
     titles = {
         "operations": ("Operacion diaria", "Daily operations", "Operacao diaria"),
@@ -498,8 +516,14 @@ async def cb_admin_automations(callback: CallbackQuery, session: AsyncSession, s
 
 
 @router.callback_query(F.data == "adm:config")
-async def cb_admin_config(callback: CallbackQuery, session: AsyncSession, settings: Settings) -> None:
+async def cb_admin_config(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
     await require_role(session, callback.from_user.id, settings, Role.OWNER)
+    await state.clear()
     await callback.message.edit_text(
         "<b>Configuracion</b>\n\n"
         f"Entorno: <code>{h(settings.app_env)}</code>\n"
@@ -540,7 +564,10 @@ async def cb_admin_config_set(
         return
     await state.set_state(AdminConfigStates.waiting_value)
     await state.update_data(config_key=key)
-    await callback.message.answer(f"<b>Editar configuracion</b>\n\n{prompt}")
+    await callback.message.answer(
+        f"<b>Editar configuracion</b>\n\n{prompt}",
+        reply_markup=back_admin_keyboard("adm:config", "Cancelar edicion"),
+    )
     await callback.answer()
 
 

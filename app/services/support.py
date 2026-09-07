@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config.settings import Settings
 from app.models.enums import LogAction
-from app.models.messaging import InboxMessage
+from app.models.messaging import InboxMessage, OutboundMessage
 from app.models.support import SupportReplyMap, SupportThread
 from app.models.user import User
 from app.services.logs import log_event
@@ -178,9 +178,9 @@ async def bridge_admin_reply(
     admin_message: Message,
     admin_user: User,
     override_text: str | None = None,
-) -> bool:
+) -> OutboundMessage | None:
     if not admin_message.reply_to_message:
-        return False
+        return None
     mapping = await session.scalar(
         select(SupportReplyMap)
         .options(selectinload(SupportReplyMap.user))
@@ -190,7 +190,7 @@ async def bridge_admin_reply(
         )
     )
     if mapping is None:
-        return False
+        return None
     if override_text:
         outbound = await MessagingService(session).send_text_to_user(
             bot=bot,
@@ -238,7 +238,7 @@ async def bridge_admin_reply(
         target_user_id=mapping.user_id,
         details={"thread_id": mapping.thread_id},
     )
-    return True
+    return outbound
 
 
 def _message_file_id(message: Message) -> str | None:

@@ -38,8 +38,9 @@ async def cmd_addmember(message: Message, session: AsyncSession, settings: Setti
     await require_role(session, message.from_user.id, settings, Role.ADMIN)
     plans = await list_plans(session, only_active=True)
     await message.answer(
-        "<b>Generar invite links</b>\n\nSelecciona el plan:",
-        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:section:operations"),
+        "<b>Generar links de acceso</b>\n\n"
+        "Selecciona el plan. Cada link permite un solo ingreso y vence segun la duracion del plan.",
+        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:links"),
     )
 
 
@@ -54,13 +55,15 @@ async def cb_links_panel(callback: CallbackQuery, session: AsyncSession, setting
     builder.button(text="Volver", callback_data="adm:section:operations")
     builder.adjust(1)
     await callback.message.edit_text(
-        "<b>Enlaces de invitacion</b>\n\n"
+        "<b>Links de acceso</b>\n\n"
         f"Total: <b>{stats['total']}</b>\n"
         f"Activos: <b>{stats['active']}</b>\n"
         f"Usados: <b>{stats['used']}</b>\n"
         f"Joins confirmados: <b>{stats['joined']}</b>\n"
         f"Expirados sin join: <b>{stats['expired_unused']}</b>\n"
-        f"Revocados: <b>{stats['revoked']}</b>",
+        f"Revocados: <b>{stats['revoked']}</b>\n\n"
+        "Cada link admite <b>1 usuario</b>, vence segun la duracion del plan y se revoca al confirmar el ingreso.\n"
+        f"Puedes generar hasta <b>{settings.max_invite_links_per_batch}</b> por lote.",
         reply_markup=builder.as_markup(),
     )
     await callback.answer()
@@ -71,8 +74,9 @@ async def cb_links_add(callback: CallbackQuery, session: AsyncSession, settings:
     await require_role(session, callback.from_user.id, settings, Role.ADMIN)
     plans = await list_plans(session, only_active=True)
     await callback.message.edit_text(
-        "<b>Generar invite links</b>\n\nSelecciona el plan:",
-        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:section:operations"),
+        "<b>Generar links de acceso</b>\n\n"
+        "Selecciona el plan. La vigencia del enlace sera igual a la duracion configurada en ese plan.",
+        reply_markup=plan_select_keyboard(plans, "addm:plan", back_callback="adm:links"),
     )
     await callback.answer()
 
@@ -85,9 +89,22 @@ async def cb_addmember_plan(callback: CallbackQuery, session: AsyncSession, sett
     if plan is None:
         await callback.answer("Plan no encontrado.", show_alert=True)
         return
+    active_channels = [channel for channel in plan.channels if channel.is_active]
+    active_groups = [group for group in plan.groups if group.is_active]
+    if not active_channels and not active_groups:
+        await callback.message.edit_text(
+            f"<b>{h(plan.name)}</b>\n\n"
+            "Este plan todavia no tiene canales o grupos asociados. Vincula uno desde Catalogo y accesos.",
+            reply_markup=plan_select_keyboard([], "addm:plan", back_callback="links:add"),
+        )
+        await callback.answer()
+        return
     await callback.message.edit_text(
-        f"<b>{h(plan.name)}</b>\n\nSelecciona canal o grupo asociado:",
-        reply_markup=addmember_chat_keyboard(plan.id, plan.channels, plan.groups),
+        f"<b>{h(plan.name)}</b>\n\n"
+        f"Vigencia: <b>{plan.duration_days} dias</b>\n"
+        "Uso: <b>1 ingreso por link</b>\n\n"
+        "Selecciona el canal o grupo asociado:",
+        reply_markup=addmember_chat_keyboard(plan.id, active_channels, active_groups),
     )
     await callback.answer()
 
@@ -108,7 +125,9 @@ async def cb_addmember_chat(
     await state.set_state(AddMemberStates.waiting_amount)
     await state.update_data(plan_id=int(plan_id), chat_kind=chat_kind, chat_db_id=int(chat_db_id))
     await callback.message.answer(
-        f"Cantidad de links a generar. Maximo: <b>{settings.max_invite_links_per_batch}</b>"
+        "<b>Cantidad de links</b>\n\n"
+        f"Escribe un numero entre <b>1</b> y <b>{settings.max_invite_links_per_batch}</b>.\n"
+        "Cada link sera independiente y de un solo uso."
     )
     await callback.answer()
 
@@ -123,7 +142,15 @@ async def receive_addmember_amount(
     await require_role(session, message.from_user.id, settings, Role.ADMIN)
     actor = await get_or_create_user(session, message.from_user)
     data = await state.get_data()
-    amount = parse_positive_int(message.text or "", "cantidad")
+    try:
+        amount = parse_positive_int(message.text or "", "cantidad")
+        if amount > settings.max_invite_links_per_batch:
+            raise ValueError(
+                f"La cantidad debe estar entre 1 y {settings.max_invite_links_per_batch}."
+            )
+    except ValueError as exc:
+        await message.answer(f"{h(str(exc))}\n\nEscribe nuevamente la cantidad.")
+        return
     links = await generate_links(
         bot=message.bot,
         session=session,
@@ -138,6 +165,8 @@ async def receive_addmember_amount(
     lines = [f"#{link.id}: {link.invite_link}" for link in links]
     await message.answer(
         "<b>Links generados</b>\n\n"
+        f"Cantidad: <b>{len(links)}</b>\n"
+        "Uso por link: <b>1 usuario</b>\n"
         f"Expiran: {human_datetime(links[0].expire_at, settings.app_timezone)}\n\n"
         + "\n".join(lines),
         disable_web_page_preview=True,

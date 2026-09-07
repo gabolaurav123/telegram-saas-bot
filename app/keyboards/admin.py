@@ -31,6 +31,11 @@ def admin_menu_keyboard(
         )
     if permissions.manage_catalog:
         builder.button(
+            text=_admin_text(language, "Links de acceso", "Access links", "Links de acesso"),
+            callback_data="adm:links",
+        )
+    if permissions.manage_catalog:
+        builder.button(
             text=_admin_text(language, "Catalogo y accesos", "Catalog and access", "Catalogo e acessos"),
             callback_data="adm:section:catalog",
         )
@@ -57,7 +62,7 @@ def admin_menu_keyboard(
         text=_admin_text(language, "Idioma del panel", "Panel language", "Idioma do painel"),
         callback_data="adm:language",
     )
-    builder.adjust(2, 2, 1, 1)
+    builder.adjust(2, 2, 2, 1, 1)
     return builder.as_markup()
 
 
@@ -248,7 +253,7 @@ def addmember_chat_keyboard(plan_id: int, channels: list, groups: list) -> Inlin
         builder.button(text=f"Canal: {channel.title}", callback_data=f"addm:chat:channel:{plan_id}:{channel.id}")
     for group in groups:
         builder.button(text=f"Grupo: {group.title}", callback_data=f"addm:chat:group:{plan_id}:{group.id}")
-    builder.button(text="Cancelar", callback_data="adm:section:operations")
+    builder.button(text="Volver", callback_data="links:add")
     builder.adjust(1)
     return builder.as_markup()
 
@@ -258,7 +263,7 @@ def generated_links_keyboard(link_ids: list[int]) -> InlineKeyboardMarkup:
     for link_id in link_ids:
         builder.button(text=f"Revocar #{link_id}", callback_data=f"link:revoke:{link_id}")
         builder.button(text=f"Reemitir #{link_id}", callback_data=f"link:reissue:{link_id}")
-    builder.button(text="Volver", callback_data="adm:section:operations")
+    builder.button(text="Volver", callback_data="adm:links")
     builder.adjust(2, 1)
     return builder.as_markup()
 
